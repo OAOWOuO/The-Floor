@@ -51,8 +51,22 @@ After that, pushes to `main` deploy automatically.
 - Server-Sent Events stream for live messages.
 - Typing indicators and typewriter message reveal.
 - Bid-based turn selection scaffold.
+- Bid-based follow-up selection, so multiple analysts can join user questions.
+- Optional OpenAI-powered follow-up replies when `OPENAI_API_KEY` is set.
 - Conviction Tracker showing how analyst stances move.
 - User follow-up chat after the debate ends.
+
+## Optional LLM mode
+
+The local demo works without API keys. To make follow-up chat genuinely generative, set:
+
+```bash
+export OPENAI_API_KEY="your_key"
+export OPENAI_MODEL="gpt-5-mini"
+npm run dev
+```
+
+The server uses the OpenAI Responses API for selected follow-up agents, then falls back to the local orchestrator if the API is unavailable.
 
 ## What comes next
 

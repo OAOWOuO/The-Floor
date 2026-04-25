@@ -10,6 +10,7 @@ const publicDir = path.join(__dirname, "public");
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
 const debateRuntimeMs = Number(process.env.FLOOR_DEBATE_MS || 90000);
+const openaiModel = process.env.OPENAI_MODEL || "gpt-5-mini";
 const sessions = new Map();
 
 const agents = {
@@ -207,8 +208,10 @@ async function handleFollowUp(request, response) {
     bid: null
   };
 
-  const replies = buildFollowUpReplies(session, body);
-  session.history.push(userMessage, ...replies);
+  session.history.push(userMessage);
+  const replies = await buildFollowUpReplies(session, body);
+  session.history.push(...replies);
+  session.followUpCount += 1;
 
   for (const reply of replies) {
     applyConviction(session, reply);
@@ -242,6 +245,7 @@ function createSession(ticker, question) {
     closed: false,
     metrics: buildMetrics(ticker, random),
     history: [],
+    followUpCount: 0,
     conviction,
     convictionHistory: Object.fromEntries(
       Object.keys(conviction).map((key) => [key, [conviction[key]]])
@@ -494,29 +498,250 @@ function buildModeratorMessage(session) {
   };
 }
 
-function buildFollowUpReplies(session, userBody) {
-  const target = findMentionedAgent(userBody) || selectFollowUpAgent(session, userBody);
-  const replies = [buildTargetedFollowUp(session, target, userBody)];
+async function buildFollowUpReplies(session, userBody) {
+  const bids = scoreFollowUpBids(session, userBody);
+  const selected = selectFollowUpSpeakers(bids, userBody);
+  const llmReplies = await buildLlmFollowUpReplies(session, userBody, selected);
 
-  if (target !== "skeptic" && shouldSkepticJoin(userBody)) {
-    replies.push(buildTargetedFollowUp(session, "skeptic", userBody));
-  } else if (target !== "kenji" && /data|number|proof|evidence|specific|year|comp|vol|margin/i.test(userBody)) {
-    replies.push(buildTargetedFollowUp(session, "kenji", userBody));
+  if (llmReplies?.length) {
+    return llmReplies;
   }
 
-  return replies;
+  return selected.map((bid, index) => buildTargetedFollowUp(session, bid.agentId, userBody, bid, index));
 }
 
-function buildTargetedFollowUp(session, agentId, userBody) {
-  const metrics = session.metrics;
-  const agent = agents[agentId];
-  const bodyByAgent = {
-    marcus: `@You I would frame it through revision durability. If ${metrics.ticker} keeps positive estimate revisions near ${metrics.revisionUpPct}% while gross margin stays around ${metrics.grossMarginPct}%, the market will forgive a lot. If revisions flatten, my case loses force quickly.`,
-    yara: `@You the comp I would test is the late-2021 growth reset and, for semis or hardware-linked names, the 2018 inventory correction. I am not saying the chart repeats. I am asking whether the same variable shows up: optimistic demand planning turning into cash-flow pressure.`,
-    kenji: `@You I would not settle this with one anecdote. I would build a three-column table: estimate revisions, cash conversion, and realized versus implied vol. For ${metrics.ticker}, the live tension is ${metrics.realizedVolPct}% realized vol against ${metrics.impliedVolPct}% implied vol.`,
-    sofia: `@You I would split the macro channel. Rates hit the discount rate, FX hits reported growth, and customer budget cycles hit demand. ${metrics.ticker}'s rate sensitivity score is ${metrics.rateSensitivity}/100, so I would not treat macro as background noise.`,
-    skeptic: `@You my objection is evidentiary. The room keeps using proxies: capex, revisions, margins, or cycle analogs. Useful proxies, yes. But if the question is demand, ask for direct usage, retention, renewal, workload, or unit-economics evidence.`
+function scoreFollowUpBids(session, userBody) {
+  const direct = findMentionedAgent(userBody);
+  const recentAgents = session.history
+    .filter((message) => agents[message.agentId])
+    .slice(-5)
+    .map((message) => message.agentId);
+  const lastAgent = recentAgents.at(-1);
+  const isInvitation = /any\s?one else|anyone else|anybody else|someone else|who else|others?|jump in|talk more|chime|其他|還有|誰要|有人要/i.test(userBody);
+  const isMetaCritique = /not good|isn't good|bad|same|repeat|repeated|boring|generic|robotic|doesn't feel|dont think|don't think|不好|一樣|重複|無聊|不像|即時|沒辦法/i.test(userBody);
+
+  const bidMap = {
+    marcus: { score: 3.8, reason: "Can reframe the upside case and answer user pushback." },
+    yara: { score: 3.8, reason: "Can challenge the quality of the debate and the thesis." },
+    kenji: { score: 3.6, reason: "Can add data discipline or measurement criteria." },
+    sofia: { score: 3.3, reason: "Can broaden the context beyond the last exchange." },
+    skeptic: { score: 3.1, reason: "Can audit assumptions if the user is asking about evidence or logic." }
   };
+
+  if (direct) {
+    bidMap[direct].score += 6.2;
+    bidMap[direct].reason = "User directly mentioned this analyst.";
+  }
+
+  if (isInvitation) {
+    for (const agentId of Object.keys(bidMap)) {
+      bidMap[agentId].score += 2.3;
+      bidMap[agentId].reason = "User invited other analysts to join.";
+    }
+    if (lastAgent) bidMap[lastAgent].score -= 4.4;
+  }
+
+  if (isMetaCritique) {
+    bidMap.yara.score += 2.8;
+    bidMap.kenji.score += 2.3;
+    bidMap.marcus.score += 1.5;
+    bidMap.skeptic.score -= 1.1;
+    bidMap.yara.reason = "User is criticizing answer quality; Yara should be blunt about what is missing.";
+    bidMap.kenji.reason = "User is criticizing answer quality; Kenji can define what would make it better.";
+  }
+
+  if (/data|number|proof|evidence|specific|year|comp|vol|margin|table|數據|證據|哪一年|對標/i.test(userBody)) {
+    bidMap.kenji.score += 3.6;
+    bidMap.skeptic.score += 1.6;
+  }
+
+  if (/cash|account|fraud|short|red flag|cycle|bear|quality|現金流|會計|空頭/i.test(userBody)) {
+    bidMap.yara.score += 3.4;
+  }
+
+  if (/rate|macro|policy|fx|currency|cycle|imf|rates|政策|匯率|利率|總經/i.test(userBody)) {
+    bidMap.sofia.score += 3.4;
+  }
+
+  if (/bull|growth|revision|upside|moat|buffett|ark|growth|成長|上修|樂觀/i.test(userBody)) {
+    bidMap.marcus.score += 3.3;
+  }
+
+  if (/assumption|bias|logic|why|demand|priced|consensus|skeptic|假設|邏輯|需求|共識/i.test(userBody)) {
+    bidMap.skeptic.score += 3.4;
+  }
+
+  for (const agentId of Object.keys(bidMap)) {
+    const recentCount = recentAgents.filter((id) => id === agentId).length;
+    bidMap[agentId].score -= recentCount * 0.9;
+    if (lastAgent === agentId) bidMap[agentId].score -= 1.7;
+    bidMap[agentId].score += session.random() * 0.7;
+  }
+
+  return Object.entries(bidMap)
+    .map(([agentId, bid]) => ({
+      agentId,
+      score: clamp(Number(bid.score.toFixed(1)), 0, 10),
+      reason: bid.reason
+    }))
+    .toSorted((a, b) => b.score - a.score);
+}
+
+function selectFollowUpSpeakers(bids, userBody) {
+  const direct = findMentionedAgent(userBody);
+  const asksForOthers = /any\s?one else|anyone else|anybody else|someone else|who else|others?|jump in|talk more|chime|其他|還有|誰要|有人要/i.test(userBody);
+  const wantsDepth = /why|evidence|specific|data|number|compare|comp|assumption|debate|more|怎麼|為什麼|證據|數據|更多|辯論/i.test(userBody);
+  const targetCount = direct && !asksForOthers ? (wantsDepth ? 2 : 1) : asksForOthers ? 3 : wantsDepth ? 2 : 1;
+  const selected = [];
+
+  for (const bid of bids) {
+    if (selected.length >= targetCount) break;
+    if (bid.score < 4.2 && selected.length > 0) continue;
+    selected.push(bid);
+  }
+
+  if (!selected.length) selected.push(bids[0]);
+  return selected;
+}
+
+async function buildLlmFollowUpReplies(session, userBody, selectedBids) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const replies = [];
+
+    for (const [index, bid] of selectedBids.entries()) {
+      const agent = agents[bid.agentId];
+      const body = await generateLlmAgentReply(session, userBody, agent, selectedBids, index);
+      if (!body) return null;
+      replies.push(buildFollowUpMessage(session, bid.agentId, body, ["LLM follow-up", "shared transcript"], bid));
+    }
+
+    return replies;
+  } catch (error) {
+    console.warn("OpenAI follow-up failed; falling back to local orchestrator.", error.message);
+    return null;
+  }
+}
+
+async function generateLlmAgentReply(session, userBody, agent, selectedBids, index) {
+  const transcript = session.history
+    .slice(-18)
+    .map((message) => `${message.name}: ${message.body}`)
+    .join("\n");
+  const coSpeakers = selectedBids
+    .filter((bid) => bid.agentId !== agent.id)
+    .map((bid) => agents[bid.agentId].name)
+    .join(", ") || "none";
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: openaiModel,
+      store: false,
+      max_output_tokens: 170,
+      reasoning: { effort: "low" },
+      instructions: [
+        `You are ${agent.name} (${agent.title}) in The Floor, a live multi-agent stock debate room.`,
+        `Persona philosophy: ${agent.philosophy}`,
+        "Reply to the user's latest chat message in character.",
+        "Do not give buy/sell/hold recommendations, target prices, or personalized financial advice.",
+        "Do not repeat earlier wording. Add a fresh angle, answer naturally, and mention another analyst only if useful.",
+        "Keep it to 2 concise sentences. If the user criticizes the product or debate quality, acknowledge it directly and say what would make the debate sharper."
+      ].join("\n"),
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: [
+                `Ticker: ${session.ticker}`,
+                `User's original question: ${session.question || "none"}`,
+                `Current metrics snapshot: ${JSON.stringify(session.metrics)}`,
+                `Recent transcript:\n${transcript}`,
+                `Latest user message: ${userBody}`,
+                `Other analysts also selected for this follow-up: ${coSpeakers}`,
+                `You are speaker ${index + 1} in this follow-up burst.`
+              ].join("\n\n")
+            }
+          ]
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI API ${response.status}`);
+  }
+
+  const data = await response.json();
+  return extractOutputText(data).slice(0, 520).trim();
+}
+
+function extractOutputText(data) {
+  if (typeof data.output_text === "string") return data.output_text;
+
+  return (data.output || [])
+    .flatMap((item) => item.content || [])
+    .filter((content) => content.type === "output_text" || content.type === "text")
+    .map((content) => content.text || "")
+    .join("\n")
+    .trim();
+}
+
+function buildTargetedFollowUp(session, agentId, userBody, bid, index) {
+  const metrics = session.metrics;
+  const isMetaCritique = /not good|isn't good|bad|same|repeat|repeated|boring|generic|robotic|doesn't feel|dont think|don't think|不好|一樣|重複|無聊|不像|即時|沒辦法/i.test(userBody);
+  const asksForOthers = /any\s?one else|anyone else|anybody else|someone else|who else|others?|jump in|talk more|chime|其他|還有|誰要|有人要/i.test(userBody);
+  const personaReplies = {
+    marcus: [
+      `@You fair push. My sharper version: if ${metrics.ticker}'s revision momentum stays near ${metrics.revisionUpPct}% while gross margin holds around ${metrics.grossMarginPct}%, the bull case is not "vibes"; it is operating leverage that has not finished showing up.`,
+      `@You I will add a different angle from Skeptic: the upside case needs a falsifiable trigger. For me, that trigger is two more quarters of revisions moving up without margin leakage.`,
+      `@You if the debate felt thin, I would tighten it around one question: is consensus still behind the earnings curve? If the answer is no, I should lower conviction immediately.`
+    ],
+    yara: [
+      `@You I agree the answer should not loop. The better bear question is simple: are earnings converting into cash, or are receivables and capex quietly carrying the story?`,
+      `@You if this is going to be useful, we need fewer slogans and more failure modes. For ${metrics.ticker}, I would start with cash conversion, customer concentration, and whether optimistic demand planning is leaking into working capital.`,
+      `@You I will be blunt: "more debate" is only better if someone names what would prove them wrong. My line is cash flow quality; if it improves, my short-seller prior should weaken.`
+    ],
+    kenji: [
+      `@You yes, another analyst should jump in. I would score the debate on evidence density: realized vol ${metrics.realizedVolPct}%, implied vol ${metrics.impliedVolPct}%, estimate dispersion ${metrics.estimateDispersionPct}%, and whether anyone can connect those numbers to the thesis.`,
+      `@You the repeated Skeptic answer is a routing bug, not a finance insight. My contribution: define the next table before arguing more, then make each analyst update conviction from the same rows.`,
+      `@You I want a cleaner protocol: one claim, one observable, one confidence update. Otherwise five voices can still collapse into five versions of the same prior.`
+    ],
+    sofia: [
+      `@You I would bring in the macro channel here. Even if the company case is strong, rate sensitivity at ${metrics.rateSensitivity}/100 means the room has to separate business execution from multiple compression.`,
+      `@You another angle: the debate should identify which external variable can break the thesis. For ${metrics.ticker}, that may be rates, FX exposure near ${metrics.usdExposurePct}%, or customer budget timing.`,
+      `@You I do want to talk more, but not by repeating the same evidence question. The macro version is: which part of the cycle actually transmits into this company, demand or valuation?`
+    ],
+    skeptic: [
+      `@You agreed, the room should not repeat itself. My next question is different: what single data point would force Marcus, Yara, Kenji, or Sofia to reduce conviction right now?`,
+      `@You I will only add value if I attack the process, not repeat the proxy point. The trap is letting "more voices" feel like more evidence when everyone is still orbiting the same missing datapoint.`,
+      `@You if the debate is not good enough, the fix is not louder agents. It is adversarial updating: every analyst has to say what would change their mind.`
+    ]
+  };
+  const pool = personaReplies[agentId];
+  const variantSeed = hashToNumber(`${session.id}:${session.followUpCount}:${agentId}:${userBody}:${index}`);
+  let body = pool[variantSeed % pool.length];
+
+  if (asksForOthers && agentId !== "skeptic") {
+    body = body.replace("@You ", "@You I'll jump in. ");
+  }
+
+  if (isMetaCritique && agentId === "kenji") {
+    body += " In product terms, this should behave like a room, not a single chatbot.";
+  }
+
+  return buildFollowUpMessage(session, agentId, body, ["follow-up bid", "shared transcript"], bid);
+}
+
+function buildFollowUpMessage(session, agentId, body, citations, bid) {
+  const agent = agents[agentId];
 
   return {
     id: crypto.randomUUID(),
@@ -526,12 +751,9 @@ function buildTargetedFollowUp(session, agentId, userBody) {
     short: agent.short,
     color: agent.color,
     timestamp: timestamp(),
-    body: bodyByAgent[agentId],
-    citations: ["follow-up context"],
-    bid: {
-      score: 8.6,
-      reason: `User asked a follow-up${userBody.includes("@") ? " with a direct mention" : ""}.`
-    },
+    body,
+    citations,
+    bid,
     stance: agentId === "marcus" ? 1 : agentId === "yara" ? -1 : 0,
     effects:
       agentId === "marcus"
@@ -582,17 +804,6 @@ function buildMetrics(ticker, random) {
   };
 }
 
-function selectFollowUpAgent(session, body) {
-  if (/cash|account|fraud|short|red flag|cycle|bear|quality/i.test(body)) return "yara";
-  if (/data|quant|vol|number|table|evidence|proof/i.test(body)) return "kenji";
-  if (/rate|macro|policy|fx|currency|cycle|imf/i.test(body)) return "sofia";
-  if (/assumption|bias|skeptic|logic|wrong/i.test(body)) return "skeptic";
-  if (/bull|growth|revision|upside|moat|buffett|ark/i.test(body)) return "marcus";
-
-  const lastNonModerator = session.history.filter((message) => agents[message.agentId]).at(-1);
-  return lastNonModerator?.agentId || "skeptic";
-}
-
 function findMentionedAgent(body) {
   const lower = body.toLowerCase();
   if (/@marcus|@bull/.test(lower)) return "marcus";
@@ -601,10 +812,6 @@ function findMentionedAgent(body) {
   if (/@sofia|@macro/.test(lower)) return "sofia";
   if (/@skeptic|the skeptic/.test(lower)) return "skeptic";
   return null;
-}
-
-function shouldSkepticJoin(body) {
-  return /assumption|agree|consensus|why|evidence|demand|priced|specific|compare|comp/i.test(body);
 }
 
 async function serveStatic(pathname, response) {

@@ -44,6 +44,7 @@ async function runSmoke(baseUrl) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let sessionId = "";
   let sawSession = false;
   let sawMessage = false;
   let sawComplete = false;
@@ -56,6 +57,7 @@ async function runSmoke(baseUrl) {
     sawSession ||= buffer.includes("event: session");
     sawMessage ||= buffer.includes("event: message");
     sawComplete ||= buffer.includes("event: complete");
+    sessionId ||= extractSessionId(buffer);
     if (sawSession && sawMessage && sawComplete) break;
   }
 
@@ -63,5 +65,48 @@ async function runSmoke(baseUrl) {
     throw new Error("SSE stream did not emit the expected events.");
   }
 
+  if (!sessionId) {
+    throw new Error("SSE stream did not include a session id.");
+  }
+
+  const firstFollowUp = await postFollowUp(baseUrl, sessionId, "hey i dont think it is good");
+  const secondFollowUp = await postFollowUp(baseUrl, sessionId, "any one else want to talk more?");
+  const firstBodies = firstFollowUp.messages.map((message) => message.body);
+  const secondAgents = new Set(secondFollowUp.messages.map((message) => message.agentId));
+  const secondBodies = secondFollowUp.messages.map((message) => message.body);
+
+  if (secondFollowUp.messages.length < 2 || secondAgents.size < 2) {
+    throw new Error("Open invitation follow-up did not select multiple analysts.");
+  }
+
+  if (secondBodies.some((body) => firstBodies.includes(body))) {
+    throw new Error("Follow-up repeated an earlier response verbatim.");
+  }
+
   console.log("Smoke test passed.");
+}
+
+function extractSessionId(streamText) {
+  const match = streamText.match(/event: session\ndata: (.+?)\n\n/s);
+  if (!match) return "";
+
+  try {
+    return JSON.parse(match[1]).sessionId || "";
+  } catch {
+    return "";
+  }
+}
+
+async function postFollowUp(baseUrl, sessionId, message) {
+  const response = await fetch(`${baseUrl}/api/followup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId, message })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Follow-up failed: ${response.status}`);
+  }
+
+  return response.json();
 }

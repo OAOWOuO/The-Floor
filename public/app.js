@@ -9,6 +9,8 @@ const state = {
   mode: "server",
   staticRunId: 0,
   staticMetrics: null,
+  staticHistory: [],
+  staticFollowUpCount: 0,
   canvasStarted: false
 };
 
@@ -217,6 +219,8 @@ async function beginStaticDebate(ticker, question, label = "Static demo") {
   state.complete = false;
   state.messageQueue = Promise.resolve();
   state.staticMetrics = buildStaticMetrics(normalizedTicker, random);
+  state.staticHistory = [];
+  state.staticFollowUpCount = 0;
   state.conviction = { marcus: 34, yara: -31, kenji: 0, sofia: 6, skeptic: 0 };
   state.convictionHistory = Object.fromEntries(
     Object.keys(state.conviction).map((agentId) => [agentId, [state.conviction[agentId]]])
@@ -241,6 +245,7 @@ async function beginStaticDebate(ticker, question, label = "Static demo") {
     await delay(720 + random() * 480);
     hideTyping();
     applyStaticConviction(message);
+    state.staticHistory.push(message);
     await queueMessage(message, true);
     renderConviction();
     await delay(260 + random() * 420);
@@ -251,6 +256,7 @@ async function beginStaticDebate(ticker, question, label = "Static demo") {
   showTyping(moderator);
   await delay(900);
   hideTyping();
+  state.staticHistory.push(moderator);
   await queueMessage(moderator, true);
   state.complete = true;
   setStatus("Follow-up open", false);
@@ -262,12 +268,24 @@ async function beginStaticDebate(ticker, question, label = "Static demo") {
 
 async function sendStaticFollowUp(message) {
   try {
+    state.staticFollowUpCount += 1;
+    state.staticHistory.push({
+      id: crypto.randomUUID(),
+      agentId: "user",
+      name: "You",
+      title: "Joined the floor",
+      short: "YOU",
+      timestamp: timestamp(),
+      body: message,
+      citations: []
+    });
     const replies = buildStaticFollowUpReplies(message);
     for (const reply of replies) {
       showTyping(reply);
       await delay(520);
       hideTyping();
       applyStaticConviction(reply);
+      state.staticHistory.push(reply);
       await queueMessage(reply, true);
       renderConviction();
     }
@@ -395,45 +413,100 @@ function buildStaticModerator(ticker) {
 }
 
 function buildStaticFollowUpReplies(body) {
-  const target = findMentionedAgent(body) || selectStaticFollowUpAgent(body);
   const metrics = state.staticMetrics;
-  const replies = [];
+  const selected = selectStaticFollowUpSpeakers(body);
+  const repliesByAgent = {
+    marcus: [
+      `@You I'll jump in. The bull case needs a sharper test: can ${metrics.ticker} keep revision momentum near ${metrics.revisionUpPct}% without giving back gross margin?`,
+      `@You fair. If this debate is going to earn attention, my claim has to be falsifiable: revisions flattening would make me reduce conviction fast.`,
+      `@You different angle from Skeptic: optionality is not magic. It has to show up as operating leverage, or the multiple is doing too much work.`
+    ],
+    yara: [
+      `@You I agree the room should not loop. I want the discussion centered on cash conversion, working capital, and whether revenue quality is as clean as the headline growth.`,
+      `@You if the answer feels generic, the fix is sharper failure modes. For ${metrics.ticker}, I would ask what breaks first: demand, margins, or accounting quality.`,
+      `@You my contribution is simple: narrative is cheap until cash proves it. If cash flow improves, my bear case should weaken; if not, the story is carrying too much weight.`
+    ],
+    kenji: [
+      `@You yes, another voice should enter. I would define a table first: realized vol ${metrics.realizedVolPct}%, implied vol ${metrics.impliedVolPct}%, estimate dispersion ${metrics.estimateDispersionPct}%, and cash conversion.`,
+      `@You the repeated answer is a routing problem. A better room needs one claim, one observable, and one conviction update from each analyst.`,
+      `@You I do not want more words; I want better measurement. Ask each analyst what number would change their mind, then track whether they actually update.`
+    ],
+    sofia: [
+      `@You I'll add the macro channel. Rate sensitivity is ${metrics.rateSensitivity}/100, so even a good company-level thesis can lose if discount rates reprice.`,
+      `@You the debate should separate business execution from market regime. FX exposure near ${metrics.usdExposurePct}% and customer budget cycles are not background details.`,
+      `@You more analysts should join only if they widen the frame. My question is whether the cycle hits demand, financing conditions, or just valuation.`
+    ],
+    skeptic: [
+      `@You agreed, repeating the proxy point is not enough. The next useful question is what single datapoint would force each analyst to lower conviction.`,
+      `@You more voices can still be fake depth if everyone uses the same missing evidence. I want adversarial updating, not a chorus.`,
+      `@You the room should ask: what would prove Marcus wrong, what would prove Yara wrong, and what would make Kenji's distribution narrower?`
+    ]
+  };
 
-  replies.push(
-    staticMessage(
-      target,
-      {
-        marcus: `@You I would test whether revisions stay positive for more than one quarter. If ${metrics.ticker} keeps revision momentum near ${metrics.revisionUpPct}% while gross margin holds around ${metrics.grossMarginPct}%, my case stays alive.`,
-        yara: `@You the specific comp I would test is the growth reset where optimistic demand planning turns into working-capital pressure. I am not saying the chart repeats; I am saying the cash-flow variable matters.`,
-        kenji: `@You I would build the table around realized vol, implied vol, estimate dispersion, and cash conversion. For ${metrics.ticker}, realized vol at ${metrics.realizedVolPct}% versus implied at ${metrics.impliedVolPct}% is the first sanity check.`,
-        sofia: `@You I would split macro into channels: rates, FX, funding, customer budgets, and policy. ${metrics.ticker}'s rate sensitivity is ${metrics.rateSensitivity}/100, so macro is not background noise.`,
-        skeptic: "@You my objection is evidentiary. If the question is demand, ask for usage, retention, renewal quality, workload growth, or unit economics. Proxies can help, but they are not the thing itself."
-      }[target],
-      ["follow-up context"],
-      target === "marcus" ? { marcus: 3 } : target === "yara" ? { yara: -3 } : {}
-    )
-  );
-
-  if (target !== "skeptic" && /why|evidence|assumption|specific|comp|demand|priced/i.test(body)) {
-    replies.push(
-      staticMessage(
-        "skeptic",
-        "@You that is exactly the right pressure point. The useful follow-up is not who sounds smarter; it is which claim would change if one direct data point moved against it.",
-        ["assumption audit"],
-        { marcus: -2, yara: 1, sofia: -1 }
-      )
+  return selected.map((bid, index) => {
+    const pool = repliesByAgent[bid.agentId];
+    const variant = hashString(`${body}:${bid.agentId}:${state.staticFollowUpCount}:${index}`) % pool.length;
+    return staticMessage(
+      bid.agentId,
+      pool[variant],
+      ["follow-up bid", "shared transcript"],
+      bid.agentId === "marcus" ? { marcus: 3 } : bid.agentId === "yara" ? { yara: -3 } : bid.agentId === "sofia" ? { sofia: 2 } : {}
     );
-  }
-
-  return replies;
+  });
 }
 
-function selectStaticFollowUpAgent(body) {
-  if (/yara|cash|account|short|bear|cycle|quality/i.test(body)) return "yara";
-  if (/kenji|data|quant|vol|number|table|evidence/i.test(body)) return "kenji";
-  if (/sofia|macro|rate|policy|fx|currency/i.test(body)) return "sofia";
-  if (/skeptic|assumption|bias|logic|wrong/i.test(body)) return "skeptic";
-  return "marcus";
+function selectStaticFollowUpSpeakers(body) {
+  const bids = scoreStaticFollowUpBids(body);
+  const direct = findMentionedAgent(body);
+  const asksForOthers = /any\s?one else|anyone else|anybody else|someone else|who else|others?|jump in|talk more|chime|其他|還有|誰要|有人要/i.test(body);
+  const wantsDepth = /why|evidence|specific|data|number|compare|comp|assumption|debate|more|怎麼|為什麼|證據|數據|更多|辯論/i.test(body);
+  const targetCount = direct && !asksForOthers ? (wantsDepth ? 2 : 1) : asksForOthers ? 3 : wantsDepth ? 2 : 1;
+  return bids.slice(0, targetCount);
+}
+
+function scoreStaticFollowUpBids(body) {
+  const direct = findMentionedAgent(body);
+  const recentAgents = state.staticHistory
+    .filter((message) => fallbackAgents.some((agent) => agent.id === message.agentId))
+    .slice(-5)
+    .map((message) => message.agentId);
+  const lastAgent = recentAgents.at(-1);
+  const asksForOthers = /any\s?one else|anyone else|anybody else|someone else|who else|others?|jump in|talk more|chime|其他|還有|誰要|有人要/i.test(body);
+  const isMetaCritique = /not good|isn't good|bad|same|repeat|repeated|boring|generic|robotic|doesn't feel|dont think|don't think|不好|一樣|重複|無聊|不像|即時|沒辦法/i.test(body);
+  const bids = {
+    marcus: { score: 3.8, reason: "Upside case can respond." },
+    yara: { score: 3.8, reason: "Bear case can sharpen quality critique." },
+    kenji: { score: 3.6, reason: "Quant can define measurement." },
+    sofia: { score: 3.3, reason: "Macro can add context." },
+    skeptic: { score: 3.1, reason: "Skeptic can audit assumptions." }
+  };
+
+  if (direct) bids[direct].score += 6.2;
+  if (asksForOthers) {
+    for (const agentId of Object.keys(bids)) bids[agentId].score += 2.3;
+    if (lastAgent) bids[lastAgent].score -= 4.4;
+  }
+  if (isMetaCritique) {
+    bids.yara.score += 2.8;
+    bids.kenji.score += 2.3;
+    bids.marcus.score += 1.5;
+    bids.skeptic.score -= 1.1;
+  }
+  if (/data|number|proof|evidence|specific|year|comp|vol|margin|table|數據|證據|哪一年|對標/i.test(body)) bids.kenji.score += 3.6;
+  if (/cash|account|fraud|short|bear|quality|現金流|會計|空頭/i.test(body)) bids.yara.score += 3.4;
+  if (/rate|macro|policy|fx|currency|cycle|imf|政策|匯率|利率|總經/i.test(body)) bids.sofia.score += 3.4;
+  if (/bull|growth|revision|upside|moat|成長|上修|樂觀/i.test(body)) bids.marcus.score += 3.3;
+  if (/assumption|bias|logic|why|demand|priced|consensus|skeptic|假設|邏輯|需求|共識/i.test(body)) bids.skeptic.score += 3.4;
+
+  for (const agentId of Object.keys(bids)) {
+    const recentCount = recentAgents.filter((id) => id === agentId).length;
+    bids[agentId].score -= recentCount * 0.9;
+    if (lastAgent === agentId) bids[agentId].score -= 1.7;
+  }
+
+  return Object.entries(bids)
+    .map(([agentId, bid]) => ({ agentId, score: Math.max(0, Math.min(10, bid.score)), reason: bid.reason }))
+    .sort((a, b) => b.score - a.score);
 }
 
 function applyStaticConviction(message) {
@@ -686,6 +759,33 @@ function scrollFeed() {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function timestamp(date = new Date()) {
+  return date.toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function hashString(input) {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  return function random() {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function startMarketCanvas() {

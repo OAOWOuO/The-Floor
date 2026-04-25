@@ -42,6 +42,8 @@ The Skeptic has a special bidding rule: intervene when two agents agree too easi
 
 The current local version is designed to run without external dependencies or API keys. It simulates analyst output using deterministic ticker-specific metrics and a real bid-based orchestrator. This makes the demo runnable immediately while preserving the shape of the future multi-agent system.
 
+Follow-up chat also uses bidding. Direct mentions get priority, broad prompts such as "anyone else?" invite multiple analysts, and recent speakers are penalized so the room does not collapse into the same respondent every time. When `OPENAI_API_KEY` is set, selected follow-up agents use the OpenAI Responses API to generate fresh in-character replies; when the API is unavailable, the local orchestrator still produces varied fallback responses.
+
 Files:
 
 - `server.mjs`: local HTTP server, SSE endpoint, debate orchestrator, follow-up endpoint.
