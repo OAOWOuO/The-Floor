@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>The Floor</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <canvas id="market-canvas" aria-hidden="true"></canvas>
+
+    <div class="app-shell">
+      <aside class="desk-panel">
+        <div class="brand-block">
+          <p class="eyebrow">THE FLOOR</p>
+          <h1>Five analysts. One stock. No mercy.</h1>
+          <p class="desk-copy">A live group debate room for investment arguments, assumptions, and conviction updates.</p>
+        </div>
+
+        <form id="debate-form" class="ticker-form">
+          <label for="ticker-input">Ticker</label>
+          <div class="ticker-row">
+            <input id="ticker-input" name="ticker" value="NVDA" autocomplete="off" spellcheck="false">
+            <button type="submit" id="begin-button">Begin debate</button>
+          </div>
+
+          <label for="question-input">Context question</label>
+          <textarea id="question-input" name="question" rows="4" placeholder="Is the AI capex narrative already priced in?"></textarea>
+        </form>
+
+        <div class="agent-list" id="agent-list" aria-label="Analyst roster"></div>
+
+        <p class="disclaimer">Educational debate simulation. Not financial advice, not a recommendation, and not a price prediction.</p>
+      </aside>
+
+      <main class="room">
+        <header class="room-header">
+          <div>
+            <p class="eyebrow">LIVE ROOM</p>
+            <h2 id="room-title">Waiting for ticker</h2>
+          </div>
+          <div id="room-status" class="status-pill">Idle</div>
+        </header>
+
+        <section id="message-feed" class="message-feed" aria-live="polite"></section>
+
+        <div id="typing-line" class="typing-line" hidden></div>
+
+        <form id="followup-form" class="followup-form" aria-label="Join the debate">
+          <input id="followup-input" name="message" placeholder="Join after the Moderator wraps. Try @Yara or @Kenji." disabled>
+          <button type="submit" id="followup-button" disabled>Send</button>
+        </form>
+      </main>
+
+      <aside class="tracker-panel">
+        <div class="tracker-header">
+          <div>
+            <p class="eyebrow">CONVICTION</p>
+            <h2>Tracker</h2>
+          </div>
+          <span id="session-chip">No session</span>
+        </div>
+
+        <div id="metrics-grid" class="metrics-grid"></div>
+        <div id="conviction-list" class="conviction-list"></div>
+
+        <section class="method-note">
+          <p class="eyebrow">ORCHESTRATOR</p>
+          <p>Each turn is selected by an agent bid, not a round robin. The Skeptic gets extra weight when consensus forms too easily.</p>
+        </section>
+      </aside>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

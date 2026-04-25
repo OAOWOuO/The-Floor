@@ -1,0 +1,16 @@
+{
+  "name": "the-floor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A live multi-agent trading floor debate room.",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "NODE_ENV=production node server.mjs",
+    "check": "node --check server.mjs && node --check public/app.js",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
