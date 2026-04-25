@@ -24,6 +24,14 @@ https://oaowouo.github.io/The-Floor/
 
 This is a static demo URL. The browser automatically uses the in-browser debate engine on `github.io`.
 
+If the first workflow run fails with `Resource not accessible by integration`, GitHub blocked the workflow from enabling Pages for the first time. Enable it once as the repo owner:
+
+```text
+Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+```
+
+Then re-run the workflow or push another commit.
+
 ## Full Server Deployment
 
 Use this when you want the real Node/SSE orchestrator online.

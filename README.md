@@ -34,6 +34,14 @@ https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html
 
 For a full Node/SSE deployment, use Render or Railway with the included `render.yaml`, `railway.json`, and `Procfile`.
 
+If the GitHub Pages workflow fails on the first run, open GitHub repo settings and enable Pages once:
+
+```text
+Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+```
+
+After that, pushes to `main` deploy automatically.
+
 ## What is implemented
 
 - Full-screen trading-room chat UI.
