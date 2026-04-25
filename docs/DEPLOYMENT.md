@@ -16,11 +16,13 @@ This version is useful for quick demos. It does not run the Node SSE server, but
 
 ## GitHub Pages
 
-If GitHub Pages is enabled from `main` / root, the root `index.html` redirects into the static app:
+The repo includes a GitHub Actions workflow that deploys `public/` as a static demo whenever `main` is pushed:
 
 ```text
 https://oaowouo.github.io/The-Floor/
 ```
+
+This is a static demo URL. The browser automatically uses the in-browser debate engine on `github.io`.
 
 ## Full Server Deployment
 

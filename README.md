@@ -20,7 +20,13 @@ For hosted deployment, set `HOST=0.0.0.0`.
 
 ## Online preview
 
-Static demo preview:
+GitHub Pages static demo:
+
+```text
+https://oaowouo.github.io/The-Floor/
+```
+
+Raw static preview:
 
 ```text
 https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html
