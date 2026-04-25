@@ -18,6 +18,16 @@ http://localhost:3000
 
 For hosted deployment, set `HOST=0.0.0.0`.
 
+## Online preview
+
+Static demo preview:
+
+```text
+https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html
+```
+
+For a full Node/SSE deployment, use Render or Railway with the included `render.yaml`, `railway.json`, and `Procfile`.
+
 ## What is implemented
 
 - Full-screen trading-room chat UI.

@@ -14,6 +14,14 @@ https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html
 
 This version is useful for quick demos. It does not run the Node SSE server, but it preserves the full visual flow: debate stream, typing indicators, Moderator wrap, follow-up chat, and Conviction Tracker.
 
+## GitHub Pages
+
+If GitHub Pages is enabled from `main` / root, the root `index.html` redirects into the static app:
+
+```text
+https://oaowouo.github.io/The-Floor/
+```
+
 ## Full Server Deployment
 
 Use this when you want the real Node/SSE orchestrator online.
