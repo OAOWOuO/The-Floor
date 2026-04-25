@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: the-floor
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: FLOOR_DEBATE_MS
+        value: 90000
