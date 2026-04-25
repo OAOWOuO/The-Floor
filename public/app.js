@@ -11,6 +11,11 @@ const state = {
   staticMetrics: null,
   staticHistory: [],
   staticFollowUpCount: 0,
+  researchStages: new Map(),
+  researchPacket: null,
+  evidenceMap: new Map(),
+  activeRoomTab: "debate",
+  lastError: null,
   canvasStarted: false
 };
 
@@ -21,14 +26,21 @@ const elements = {
   begin: document.querySelector("#begin-button"),
   roomTitle: document.querySelector("#room-title"),
   roomStatus: document.querySelector("#room-status"),
+  roomTabButtons: document.querySelectorAll("[data-room-tab]"),
+  debatePanel: document.querySelector("#debate-panel"),
+  dataPanel: document.querySelector("#data-panel"),
+  researchTimeline: document.querySelector("#research-timeline"),
   feed: document.querySelector("#message-feed"),
   typing: document.querySelector("#typing-line"),
   followupForm: document.querySelector("#followup-form"),
   followupInput: document.querySelector("#followup-input"),
   followupButton: document.querySelector("#followup-button"),
   agentList: document.querySelector("#agent-list"),
+  researchSummary: document.querySelector("#research-summary"),
   metricsGrid: document.querySelector("#metrics-grid"),
   convictionList: document.querySelector("#conviction-list"),
+  coverageChip: document.querySelector("#coverage-chip"),
+  evidenceList: document.querySelector("#evidence-list"),
   sessionChip: document.querySelector("#session-chip"),
   canvas: document.querySelector("#market-canvas")
 };
@@ -55,8 +67,12 @@ elements.followupForm.addEventListener("submit", async (event) => {
   await sendFollowUp();
 });
 
+for (const button of elements.roomTabButtons) {
+  button.addEventListener("click", () => setRoomTab(button.dataset.roomTab));
+}
+
 function beginDebate() {
-  const ticker = elements.ticker.value.trim() || "NVDA";
+  const ticker = elements.ticker.value.trim();
   const question = elements.question.value.trim();
 
   if (state.eventSource) state.eventSource.close();
@@ -70,14 +86,28 @@ function beginDebate() {
   state.sessionId = null;
   state.complete = false;
   state.messageQueue = Promise.resolve();
+  state.researchStages = new Map();
+  state.researchPacket = null;
+  state.evidenceMap = new Map();
+  state.activeRoomTab = "debate";
+  state.lastError = null;
+  state.conviction = {};
+  state.convictionHistory = {};
   elements.feed.innerHTML = "";
+  elements.researchTimeline.innerHTML = "";
+  elements.researchTimeline.hidden = false;
+  elements.researchSummary.innerHTML = "";
+  elements.evidenceList.innerHTML = "";
+  elements.coverageChip.textContent = "No packet";
+  renderDataPanel(null);
+  setRoomTab("debate");
   elements.typing.hidden = true;
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
   elements.begin.disabled = true;
-  setStatus("Connecting", true);
-  elements.roomTitle.textContent = `${ticker.toUpperCase()} debate warming up`;
-  elements.sessionChip.textContent = "Opening floor";
+  setStatus("Researching", true);
+  elements.roomTitle.textContent = `${ticker ? ticker.toUpperCase() : "Ticker"} research queue`;
+  elements.sessionChip.textContent = "Research first";
 
   const params = new URLSearchParams({ ticker, question });
   const source = new EventSource(`/api/debate?${params.toString()}`);
@@ -87,14 +117,35 @@ function beginDebate() {
     const payload = JSON.parse(event.data);
     state.sessionId = payload.sessionId;
     state.agents = payload.agents;
-    state.conviction = payload.conviction;
-    state.convictionHistory = payload.convictionHistory;
+    state.mode = payload.mode || "server";
     renderAgents();
-    renderMetrics(payload.metrics);
+    renderMetrics(null);
     renderConviction();
-    elements.roomTitle.textContent = `${payload.ticker} live debate`;
+    elements.roomTitle.textContent = `${payload.ticker || ticker.toUpperCase()} research in progress`;
     elements.sessionChip.textContent = payload.sessionId.slice(0, 8);
-    setStatus("Live", true);
+    setStatus(payload.mode === "static" ? "Static demo" : "Researching", true);
+  });
+
+  source.addEventListener("research_stage", (event) => {
+    const payload = JSON.parse(event.data);
+    updateResearchStage(payload);
+    const active = payload.status === "active" ? payload.label : "Researching";
+    setStatus(active, payload.status !== "failed");
+  });
+
+  source.addEventListener("research_packet_summary", (event) => {
+    const payload = JSON.parse(event.data);
+    state.researchPacket = payload;
+    state.evidenceMap = new Map((payload.evidenceItems || []).map((item) => [item.evidenceId, item]));
+    if (payload.initialConviction) state.conviction = payload.initialConviction;
+    if (payload.convictionHistory) state.convictionHistory = payload.convictionHistory;
+    renderResearchSummary(payload);
+    renderMetrics(payload);
+    renderEvidence(payload);
+    renderDataPanel(payload);
+    renderConviction();
+    elements.roomTitle.textContent = `${payload.resolvedTicker} research packet ready`;
+    elements.coverageChip.textContent = `${payload.dataCoverageScore ?? 0}/100`;
   });
 
   source.addEventListener("typing", (event) => {
@@ -105,6 +156,7 @@ function beginDebate() {
   source.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     hideTyping();
+    elements.researchTimeline.hidden = true;
     queueMessage(message, true);
   });
 
@@ -129,15 +181,26 @@ function beginDebate() {
     source.close();
   });
 
+  source.addEventListener("error", (event) => {
+    if (!event.data) return;
+    const payload = JSON.parse(event.data);
+    state.lastError = payload;
+    hideTyping();
+    renderFailure(payload);
+    setStatus("Failed", false);
+    elements.begin.disabled = false;
+    elements.followupInput.disabled = true;
+    elements.followupButton.disabled = true;
+    source.close();
+  });
+
   source.onerror = () => {
+    if (state.lastError) return;
     if (!state.complete) {
       source.close();
-      if (!state.sessionId) {
-        beginStaticDebate(ticker, question, "Static fallback");
-      } else {
-        setStatus("Stream interrupted", false);
-        elements.begin.disabled = false;
-      }
+      renderFailure({ code: "stream_interrupted", message: "The research stream was interrupted." });
+      setStatus("Stream interrupted", false);
+      elements.begin.disabled = false;
     }
   };
 }
@@ -181,9 +244,9 @@ async function sendFollowUp() {
       body: JSON.stringify({ sessionId: state.sessionId, message })
     });
 
-    if (!response.ok) throw new Error("Follow-up failed");
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error?.message || "Follow-up failed");
 
-    const payload = await response.json();
     for (const reply of payload.messages) {
       showTyping({ name: reply.name, title: reply.title });
       await delay(500);
@@ -195,8 +258,9 @@ async function sendFollowUp() {
     state.convictionHistory = payload.convictionHistory;
     renderConviction();
     setStatus("Follow-up open", false);
-  } catch {
+  } catch (error) {
     setStatus("Could not send", false);
+    renderFailure({ code: "followup_failed", message: error.message });
   } finally {
     elements.followupInput.disabled = false;
     elements.followupButton.disabled = false;
@@ -221,12 +285,19 @@ async function beginStaticDebate(ticker, question, label = "Static demo") {
   state.staticMetrics = buildStaticMetrics(normalizedTicker, random);
   state.staticHistory = [];
   state.staticFollowUpCount = 0;
+  state.researchStages = new Map();
+  state.researchPacket = buildStaticResearchPacket(normalizedTicker, state.staticMetrics);
+  state.evidenceMap = new Map((state.researchPacket.evidenceItems || []).map((item) => [item.evidenceId, item]));
+  state.activeRoomTab = "debate";
+  state.lastError = null;
   state.conviction = { marcus: 34, yara: -31, kenji: 0, sofia: 6, skeptic: 0 };
   state.convictionHistory = Object.fromEntries(
     Object.keys(state.conviction).map((agentId) => [agentId, [state.conviction[agentId]]])
   );
 
   elements.feed.innerHTML = "";
+  elements.researchTimeline.innerHTML = "";
+  elements.researchTimeline.hidden = true;
   elements.typing.hidden = true;
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
@@ -234,7 +305,11 @@ async function beginStaticDebate(ticker, question, label = "Static demo") {
   elements.roomTitle.textContent = `${normalizedTicker} live debate`;
   elements.sessionChip.textContent = state.sessionId.slice(0, 8);
   setStatus(label, true);
+  renderResearchSummary(state.researchPacket);
   renderMetrics(state.staticMetrics);
+  renderEvidence(state.researchPacket);
+  renderDataPanel(state.researchPacket);
+  setRoomTab("debate");
   renderConviction();
 
   const plan = buildStaticPlan(normalizedTicker, question, state.staticMetrics, random);
@@ -545,10 +620,49 @@ function buildStaticMetrics(ticker, random) {
   };
 }
 
+function buildStaticResearchPacket(ticker, metrics) {
+  return {
+    resolvedTicker: ticker,
+    displayName: `${ticker} Static Demo`,
+    exchange: "DEMO",
+    currency: "USD",
+    marketState: "STATIC",
+    latestPrice: 100,
+    priceChange: 1.2,
+    marketCap: 100000000000,
+    sector: "Demo",
+    industry: "Static mode",
+    businessSummary: "Static demo mode shows the room mechanics with canned data. Normal mode researches the ticker first.",
+    keyStats: {
+      trailingPE: metrics.pe,
+      beta: metrics.beta,
+      revenueGrowth: metrics.revenueGrowthPct / 100,
+      grossMargins: metrics.grossMarginPct / 100
+    },
+    recentPriceContext: { periodReturnPct: 8.4, observations: ["Static price context for demo mode only."] },
+    filingOrDisclosureSummary: { available: false, summary: "Static mode does not fetch filings.", recentFilings: [] },
+    evidenceItems: [
+      {
+        evidenceId: "D01",
+        sourceType: "static_demo",
+        sourceLabel: "Static demo packet",
+        sourceUrl: null,
+        timestamp: new Date().toISOString(),
+        claim: "This packet is explicit static demo data, not real market research.",
+        importance: 1,
+        analystRelevance: ["skeptic"]
+      }
+    ],
+    researchWarnings: ["Static demo mode is not market research."],
+    dataCoverageScore: 0,
+    readyForDebate: true,
+    companySnapshot: "Explicit static demo. Use normal mode with an API key for real research.",
+    analystPriors: null
+  };
+}
+
 function isStaticDemoHost() {
-  const host = window.location.hostname;
-  return new URLSearchParams(window.location.search).has("static")
-    || /github\.io|githack\.com|htmlpreview\.github\.io|jsdelivr\.net/i.test(host);
+  return new URLSearchParams(window.location.search).get("static") === "1";
 }
 
 function findMentionedAgent(body) {
@@ -595,12 +709,18 @@ async function renderMessage(message, animated) {
 
   article.append(header, body);
 
-  if (message.citations?.length) {
+  const citationItems = message.citedEvidenceIds?.length ? message.citedEvidenceIds : message.citations || [];
+  if (citationItems.length) {
     const citations = document.createElement("div");
     citations.className = "citation-list";
-    for (const item of message.citations) {
-      const chip = document.createElement("span");
-      chip.textContent = item;
+    for (const item of citationItems) {
+      const evidence = state.evidenceMap.get(item);
+      const chip = document.createElement(evidence ? "button" : "span");
+      if (evidence) chip.type = "button";
+      chip.textContent = evidence ? `${item} · ${evidence.sourceLabel}` : item;
+      if (evidence) {
+        chip.addEventListener("click", () => focusEvidence(item));
+      }
       citations.append(chip);
     }
     article.append(citations);
@@ -643,6 +763,330 @@ function setStatus(text, live) {
   elements.roomStatus.classList.toggle("live", Boolean(live));
 }
 
+function setRoomTab(tab) {
+  const next = tab === "data" ? "data" : "debate";
+  state.activeRoomTab = next;
+
+  for (const button of elements.roomTabButtons) {
+    const active = button.dataset.roomTab === next;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  }
+
+  elements.debatePanel.hidden = next !== "debate";
+  elements.dataPanel.hidden = next !== "data";
+}
+
+function updateResearchStage(stage) {
+  if (!stage?.stage) return;
+  state.researchStages.set(stage.stage, stage);
+  renderResearchTimeline();
+}
+
+function renderResearchTimeline() {
+  const order = [
+    "resolving_ticker",
+    "fetching_market_data",
+    "fetching_company_profile",
+    "fetching_disclosures",
+    "building_research_packet",
+    "assigning_analyst_priors",
+    "ready_to_debate"
+  ];
+  elements.researchTimeline.innerHTML = "";
+
+  for (const key of order) {
+    const stage = state.researchStages.get(key);
+    if (!stage) continue;
+    const row = document.createElement("div");
+    row.className = `stage-row ${stage.status}`;
+
+    const dot = document.createElement("span");
+    dot.className = "stage-dot";
+
+    const copy = document.createElement("div");
+    copy.className = "stage-copy";
+
+    const label = document.createElement("strong");
+    label.textContent = stage.label;
+
+    const meta = document.createElement("span");
+    meta.textContent = stage.detail || stage.status;
+
+    copy.append(label, meta);
+    row.append(dot, copy);
+    elements.researchTimeline.append(row);
+  }
+}
+
+function renderFailure(error) {
+  const article = document.createElement("article");
+  article.className = "message moderator failure-card";
+
+  const header = document.createElement("div");
+  header.className = "message-header";
+  const code = document.createElement("span");
+  code.className = "message-code";
+  code.textContent = "FAIL";
+  const name = document.createElement("span");
+  name.className = "message-name";
+  name.textContent = "Research stopped";
+  const title = document.createElement("span");
+  title.className = "message-title";
+  title.textContent = `(${error.code || "error"})`;
+  header.append(code, name, title);
+
+  const body = document.createElement("div");
+  body.className = "message-body";
+  body.textContent = error.message || "The room could not start a real research-backed debate.";
+
+  article.append(header, body);
+  elements.feed.append(article);
+  scrollFeed();
+}
+
+function renderResearchSummary(packet) {
+  if (!packet) {
+    elements.researchSummary.innerHTML = "";
+    return;
+  }
+
+  const warnings = packet.researchWarnings || [];
+  elements.researchSummary.innerHTML = "";
+
+  const title = document.createElement("div");
+  title.className = "research-summary-title";
+  const strong = document.createElement("strong");
+  strong.textContent = packet.displayName || packet.resolvedTicker || "Research packet";
+  const span = document.createElement("span");
+  span.textContent = [packet.exchange, packet.currency, packet.marketState].filter(Boolean).join(" · ");
+  title.append(strong, span);
+
+  const snapshot = document.createElement("p");
+  snapshot.textContent = packet.companySnapshot || packet.businessSummary || "Research packet created from available market data.";
+
+  elements.researchSummary.append(title, snapshot);
+
+  if (packet.analystPriors) {
+    const priors = document.createElement("div");
+    priors.className = "prior-list";
+    for (const agent of state.agents) {
+      const prior = packet.analystPriors[agent.id];
+      if (!prior) continue;
+      const item = document.createElement("p");
+      const label = document.createElement("strong");
+      label.textContent = agent.name;
+      item.append(label, document.createTextNode(` ${prior}`));
+      priors.append(item);
+    }
+    elements.researchSummary.append(priors);
+  }
+
+  if (warnings.length) {
+    const warning = document.createElement("p");
+    warning.className = "research-warning";
+    warning.textContent = warnings.slice(0, 2).join(" ");
+    elements.researchSummary.append(warning);
+  }
+}
+
+function renderEvidence(packet) {
+  elements.evidenceList.innerHTML = "";
+  const items = packet?.evidenceItems || [];
+  elements.coverageChip.textContent = packet ? `${packet.dataCoverageScore ?? 0}/100` : "No packet";
+
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-evidence";
+    empty.textContent = "No evidence packet yet.";
+    elements.evidenceList.append(empty);
+    return;
+  }
+
+  for (const item of items) {
+    const card = document.createElement(item.sourceUrl ? "a" : "div");
+    card.className = "evidence-card";
+    card.id = `evidence-${item.evidenceId}`;
+    if (item.sourceUrl) {
+      card.href = item.sourceUrl;
+      card.target = "_blank";
+      card.rel = "noreferrer";
+    }
+
+    const head = document.createElement("div");
+    head.className = "evidence-head";
+    const id = document.createElement("strong");
+    id.textContent = item.evidenceId;
+    const source = document.createElement("span");
+    source.textContent = item.sourceLabel;
+    head.append(id, source);
+
+    const claim = document.createElement("p");
+    claim.textContent = item.claim;
+
+    card.append(head, claim);
+    elements.evidenceList.append(card);
+  }
+}
+
+function renderDataPanel(packet) {
+  elements.dataPanel.innerHTML = "";
+
+  if (!packet) {
+    const empty = document.createElement("div");
+    empty.className = "data-empty";
+    empty.textContent = "Run a ticker research flow to populate the data room.";
+    elements.dataPanel.append(empty);
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "data-room-header";
+  const title = document.createElement("div");
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = "DATA ROOM";
+  const heading = document.createElement("h3");
+  heading.textContent = `${packet.resolvedTicker} research packet`;
+  const meta = document.createElement("span");
+  meta.textContent = [packet.displayName, packet.exchange, packet.currency, `coverage ${packet.dataCoverageScore ?? 0}/100`]
+    .filter(Boolean)
+    .join(" · ");
+  title.append(eyebrow, heading, meta);
+  header.append(title);
+  elements.dataPanel.append(header);
+
+  const quoteGrid = document.createElement("div");
+  quoteGrid.className = "data-grid";
+  for (const [label, value] of [
+    ["Latest price", formatCurrency(packet.latestPrice, packet.currency)],
+    ["Price change", formatSigned(packet.priceChange)],
+    ["Market cap", formatMarketCap(packet.marketCap)],
+    ["Market state", packet.marketState || "n/a"],
+    ["Sector", packet.sector || "n/a"],
+    ["Industry", packet.industry || "n/a"],
+    ["6mo return", packet.recentPriceContext?.periodReturnPct == null ? "n/a" : `${packet.recentPriceContext.periodReturnPct}%`]
+  ]) {
+    quoteGrid.append(dataMetric(label, value));
+  }
+  elements.dataPanel.append(sectionBlock("Market Snapshot", quoteGrid));
+
+  const keyStats = document.createElement("div");
+  keyStats.className = "data-table";
+  const stats = packet.keyStats || {};
+  for (const [label, key, digits] of [
+    ["Trailing P/E", "trailingPE", 1],
+    ["Forward P/E", "forwardPE", 1],
+    ["Beta", "beta", 2],
+    ["EV/EBITDA", "enterpriseToEbitda", 1],
+    ["Price/book", "priceToBook", 1],
+    ["Revenue growth", "revenueGrowth", 1],
+    ["Gross margin", "grossMargins", 1],
+    ["Operating margin", "operatingMargins", 1],
+    ["Free cash flow", "freeCashflow", 0],
+    ["Operating cash flow", "operatingCashflow", 0],
+    ["Total debt", "totalDebt", 0]
+  ]) {
+    const value =
+      key === "revenueGrowth" || key === "grossMargins" || key === "operatingMargins"
+        ? formatPercent(stats[key])
+        : key.endsWith("flow") || key === "totalDebt"
+          ? formatMarketCap(stats[key])
+          : formatValue(stats[key], digits);
+    keyStats.append(dataRow(label, value));
+  }
+  elements.dataPanel.append(sectionBlock("Key Statistics", keyStats));
+
+  const disclosure = packet.filingOrDisclosureSummary || {};
+  const disclosureBlock = document.createElement("div");
+  disclosureBlock.className = "data-table";
+  disclosureBlock.append(dataRow("Availability", disclosure.available ? "Available" : "Unavailable"));
+  disclosureBlock.append(dataRow("Summary", disclosure.summary || "n/a"));
+  for (const filing of disclosure.recentFilings || []) {
+    const label = [filing.form, filing.filingDate].filter(Boolean).join(" · ") || "Filing";
+    disclosureBlock.append(dataRow(label, filing.url || filing.accessionNumber || filing.reportDate || "n/a"));
+  }
+  elements.dataPanel.append(sectionBlock("Filings / Disclosures", disclosureBlock));
+
+  if (packet.researchWarnings?.length) {
+    const warnings = document.createElement("div");
+    warnings.className = "data-warning-list";
+    for (const warning of packet.researchWarnings) {
+      const item = document.createElement("p");
+      item.textContent = warning;
+      warnings.append(item);
+    }
+    elements.dataPanel.append(sectionBlock("Warnings", warnings));
+  }
+
+  const evidence = document.createElement("div");
+  evidence.className = "data-evidence-grid";
+  for (const item of packet.evidenceItems || []) {
+    const card = document.createElement(item.sourceUrl ? "a" : "div");
+    card.className = "data-evidence-card";
+    if (item.sourceUrl) {
+      card.href = item.sourceUrl;
+      card.target = "_blank";
+      card.rel = "noreferrer";
+    }
+    const cardHead = document.createElement("strong");
+    cardHead.textContent = `${item.evidenceId} · ${item.sourceLabel}`;
+    const claim = document.createElement("p");
+    claim.textContent = item.claim;
+    card.append(cardHead, claim);
+    evidence.append(card);
+  }
+  elements.dataPanel.append(sectionBlock("Evidence Items", evidence));
+
+  const raw = document.createElement("details");
+  raw.className = "raw-packet";
+  const summary = document.createElement("summary");
+  summary.textContent = "Raw packet";
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(packet, null, 2);
+  raw.append(summary, pre);
+  elements.dataPanel.append(raw);
+}
+
+function sectionBlock(title, content) {
+  const section = document.createElement("section");
+  section.className = "data-section";
+  const heading = document.createElement("h4");
+  heading.textContent = title;
+  section.append(heading, content);
+  return section;
+}
+
+function dataMetric(label, value) {
+  const cell = document.createElement("div");
+  cell.className = "data-metric";
+  const strong = document.createElement("strong");
+  strong.textContent = value;
+  const span = document.createElement("span");
+  span.textContent = label;
+  cell.append(strong, span);
+  return cell;
+}
+
+function dataRow(label, value) {
+  const row = document.createElement("div");
+  row.className = "data-row";
+  const left = document.createElement("span");
+  left.textContent = label;
+  const right = document.createElement("strong");
+  right.textContent = value == null || value === "" ? "n/a" : String(value);
+  row.append(left, right);
+  return row;
+}
+
+function focusEvidence(evidenceId) {
+  const card = document.querySelector(`#evidence-${CSS.escape(evidenceId)}`);
+  if (!card) return;
+  card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  card.classList.add("highlight");
+  window.setTimeout(() => card.classList.remove("highlight"), 1200);
+}
+
 function renderAgents() {
   elements.agentList.innerHTML = "";
   for (const agent of state.agents) {
@@ -670,20 +1114,32 @@ function renderAgents() {
 }
 
 function renderMetrics(metrics) {
+  elements.metricsGrid.innerHTML = "";
   if (!metrics) return;
 
-  const rows = [
-    ["P/E", metrics.pe],
-    ["Rev growth", `${metrics.revenueGrowthPct}%`],
-    ["Gross margin", `${metrics.grossMarginPct}%`],
-    ["FCF yield", `${metrics.fcfYieldPct}%`],
-    ["Realized vol", `${metrics.realizedVolPct}%`],
-    ["Implied vol", `${metrics.impliedVolPct}%`],
-    ["Beta", metrics.beta],
-    ["Rate sens.", `${metrics.rateSensitivity}/100`]
-  ];
+  const rows = metrics.resolvedTicker
+    ? [
+        ["Price", formatCurrency(metrics.latestPrice, metrics.currency)],
+        ["Change", formatSigned(metrics.priceChange)],
+        ["Market cap", formatMarketCap(metrics.marketCap)],
+        ["Coverage", `${metrics.dataCoverageScore ?? 0}/100`],
+        ["Sector", metrics.sector || "n/a"],
+        ["Industry", metrics.industry || "n/a"],
+        ["Forward P/E", formatValue(metrics.keyStats?.forwardPE, 1)],
+        ["Beta", formatValue(metrics.keyStats?.beta, 2)],
+        ["6mo return", metrics.recentPriceContext?.periodReturnPct == null ? "n/a" : `${metrics.recentPriceContext.periodReturnPct}%`]
+      ]
+    : [
+        ["P/E", metrics.pe],
+        ["Rev growth", `${metrics.revenueGrowthPct}%`],
+        ["Gross margin", `${metrics.grossMarginPct}%`],
+        ["FCF yield", `${metrics.fcfYieldPct}%`],
+        ["Realized vol", `${metrics.realizedVolPct}%`],
+        ["Implied vol", `${metrics.impliedVolPct}%`],
+        ["Beta", metrics.beta],
+        ["Rate sens.", `${metrics.rateSensitivity}/100`]
+      ];
 
-  elements.metricsGrid.innerHTML = "";
   for (const [label, value] of rows) {
     const cell = document.createElement("div");
     cell.className = "metric";
@@ -751,6 +1207,41 @@ function formatScore(value) {
   if (value > 12) return `Bull +${value}`;
   if (value < -12) return `Bear ${value}`;
   return `Neutral ${value >= 0 ? "+" : ""}${value}`;
+}
+
+function formatCurrency(value, currency) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "n/a";
+  return `${currency || ""} ${number.toLocaleString(undefined, { maximumFractionDigits: 2 })}`.trim();
+}
+
+function formatSigned(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "n/a";
+  return `${number >= 0 ? "+" : ""}${number.toFixed(2)}`;
+}
+
+function formatMarketCap(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "n/a";
+  const abs = Math.abs(number);
+  if (abs >= 1_000_000_000_000) return `${(number / 1_000_000_000_000).toFixed(2)}T`;
+  if (abs >= 1_000_000_000) return `${(number / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
+  return number.toLocaleString();
+}
+
+function formatValue(value, digits = 1) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "n/a";
+  return number.toFixed(digits);
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "n/a";
+  const scaled = Math.abs(number) <= 2 ? number * 100 : number;
+  return `${scaled.toFixed(1)}%`;
 }
 
 function scrollFeed() {

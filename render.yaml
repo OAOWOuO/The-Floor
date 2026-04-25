@@ -10,3 +10,5 @@ services:
         value: 0.0.0.0
       - key: FLOOR_DEBATE_MS
         value: 90000
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini

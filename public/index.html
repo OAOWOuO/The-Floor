@@ -42,7 +42,19 @@
           <div id="room-status" class="status-pill">Idle</div>
         </header>
 
-        <section id="message-feed" class="message-feed" aria-live="polite"></section>
+        <nav class="room-tabs" aria-label="Room view">
+          <button type="button" class="room-tab active" data-room-tab="debate">Debate</button>
+          <button type="button" class="room-tab" data-room-tab="data">Data</button>
+        </nav>
+
+        <section id="debate-panel" class="room-tab-panel debate-panel">
+          <section id="research-timeline" class="research-timeline" aria-label="Research progress"></section>
+          <section id="message-feed" class="message-feed" aria-live="polite"></section>
+        </section>
+
+        <section id="data-panel" class="room-tab-panel data-room-panel" hidden>
+          <div class="data-empty">Run a ticker research flow to populate the data room.</div>
+        </section>
 
         <div id="typing-line" class="typing-line" hidden></div>
 
@@ -61,12 +73,21 @@
           <span id="session-chip">No session</span>
         </div>
 
+        <section id="research-summary" class="research-summary"></section>
         <div id="metrics-grid" class="metrics-grid"></div>
         <div id="conviction-list" class="conviction-list"></div>
 
+        <section class="source-panel">
+          <div class="source-panel-head">
+            <p class="eyebrow">EVIDENCE</p>
+            <span id="coverage-chip">No packet</span>
+          </div>
+          <div id="evidence-list" class="evidence-list"></div>
+        </section>
+
         <section class="method-note">
           <p class="eyebrow">ORCHESTRATOR</p>
-          <p>Each turn is selected by an agent bid, not a round robin. The Skeptic gets extra weight when consensus forms too easily.</p>
+          <p>The room researches first, then debates from the same packet. Static demo mode only runs with <strong>?static=1</strong>.</p>
         </section>
       </aside>
     </div>

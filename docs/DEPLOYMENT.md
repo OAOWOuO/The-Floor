@@ -2,17 +2,17 @@
 
 The Floor has two deploy paths.
 
-## Instant Static Preview
+## Explicit Static Preview
 
-The browser app automatically falls back to a static in-browser debate engine when it is opened from a static host such as GitHub Pages or RawGitHack.
+Static mode is now explicit. It does not fetch market data and should not be presented as researched analysis.
 
 Shareable preview:
 
 ```text
-https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html
+https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html?static=1
 ```
 
-This version is useful for quick demos. It does not run the Node SSE server, but it preserves the full visual flow: debate stream, typing indicators, Moderator wrap, follow-up chat, and Conviction Tracker.
+This version is useful for quick UI demos only. Real research mode requires the Node/SSE server and `OPENAI_API_KEY`.
 
 ## GitHub Pages
 
@@ -22,7 +22,7 @@ The repo includes a GitHub Actions workflow that deploys `public/` as a static d
 https://oaowouo.github.io/The-Floor/
 ```
 
-This is a static demo URL. The browser automatically uses the in-browser debate engine on `github.io`.
+This is a static host. Add `?static=1` if you intentionally want the in-browser demo.
 
 If the first workflow run fails with `Resource not accessible by integration`, GitHub blocked the workflow from enabling Pages for the first time. Enable it once as the repo owner:
 
@@ -45,6 +45,9 @@ Use this when you want the real Node/SSE orchestrator online.
 ```text
 HOST=0.0.0.0
 FLOOR_DEBATE_MS=90000
+OPENAI_MODEL=gpt-5.4-mini
+OPENAI_API_KEY=<your OpenAI key>
+SEC_USER_AGENT="The Floor contact@example.com"
 ```
 
 ### Railway
@@ -56,6 +59,8 @@ FLOOR_DEBATE_MS=90000
 ```text
 HOST=0.0.0.0
 FLOOR_DEBATE_MS=90000
+OPENAI_MODEL=gpt-5.4-mini
+OPENAI_API_KEY=<your OpenAI key>
 ```
 
 The start command is `npm start`.

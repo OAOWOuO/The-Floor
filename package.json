@@ -7,10 +7,16 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "NODE_ENV=production node server.mjs",
-    "check": "node --check server.mjs && node --check public/app.js",
+    "check": "node scripts/check.mjs",
+    "test": "node scripts/test.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "openai": "^6.34.0",
+    "yahoo-finance2": "^3.14.0",
+    "zod": "^4.3.6"
   }
 }

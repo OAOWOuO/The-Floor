@@ -1,108 +1,102 @@
 # THE FLOOR - Product Architecture
 
-This document is the working architecture for the rebuilt version of The Floor.
-
-## Product Identity
-
-Name: The Floor
-
-Tagline: Five analysts. One stock. No mercy.
-
-One-line definition: The Floor is a live AI trading floor where five specialist analyst-agents debate any global stock in real time, and the user watches the argument happen.
+The Floor is a research-first live AI trading-floor debate room. The product is not a recommendation engine. It resolves a public-market ticker, gathers a real evidence packet, and only then opens a multi-agent debate.
 
 ## Core Experience
 
-The app opens directly into a full-screen immersive chat room. The user enters a ticker and optional context question, then starts a debate. A shared chat room begins streaming messages from five analyst personas:
+The user enters a ticker and optional context question. The center room first shows research stages:
 
-- Marcus, The Bull: ex-growth fund PM; power-law thinker; confident, narrative-aware, but grounded in operating leverage and estimate revisions.
-- Yara, The Bear: ex-short seller; cold, cash-flow-driven, allergic to narrative; looks for accounting quality and incentive problems.
-- Kenji, The Quant: ex-Two Sigma engineer; data-first; cares about realized volatility, factor exposure, dispersion, and base rates.
-- Sofia, The Macro: ex-IMF economist; frames the company inside rates, policy, FX, liquidity, and cycle risk.
-- The Skeptic: nameless, backstory-free, and central to the product; identifies unstated assumptions, circular reasoning, survivor bias, and over-clean consensus.
+1. Resolving ticker
+2. Fetching market data
+3. Fetching company profile and key statistics
+4. Fetching filings / recent disclosures
+5. Reading and extracting evidence
+6. Assigning analyst priors
+7. Starting debate
 
-After the analyst debate, a Moderator summarizes the real disagreements and surfaces the remaining questions. The user can then enter the room and ask follow-up questions, including direct mentions such as `@Yara`.
+Only after those stages complete does the shared chat room stream analyst messages. Static demo mode exists only behind `?static=1`.
 
-## Debate Orchestration
+## Agents
 
-The orchestrator owns:
+- Marcus, The Bull: upside, operating leverage, revision momentum.
+- Yara, The Bear: cash flow, quality, incentives, downside asymmetry.
+- Kenji, The Quant: distribution, volatility, base rates, measurement.
+- Sofia, The Macro: rates, liquidity, FX, cycle transmission.
+- The Skeptic: assumption hunting, invalid analogy detection, missing-evidence critique.
+- Moderator: synthesizes disagreement, never recommends.
 
-- Shared chat history.
-- Agent definitions and system behavior.
-- Debate runtime.
-- Turn queue.
-- Bid evaluation.
-- Conviction state.
-- SSE streaming to the browser.
+## Data Pipeline
 
-Turn selection is intentionally not round-robin. Each candidate agent scores its urge to respond from 0 to 10 based on the last message, current consensus, underrepresented viewpoints, and persona-specific triggers. The orchestrator chooses the highest bid, appends the generated message to shared history, updates conviction, and streams the result.
+Server-side data comes from `yahoo-finance2`:
 
-The Skeptic has a special bidding rule: intervene when two agents agree too easily, when a bullish or bearish thesis relies on an unstated assumption, or when the debate starts using a proxy as if it were direct evidence.
+- ticker search / symbol resolution
+- quote
+- six-month chart
+- profile / summary profile
+- financial data
+- default key statistics
+- summary detail
+- earnings
+- Yahoo `secFilings` when available
 
-## Current Implementation
+For US-style tickers, SEC EDGAR enrichment is attempted when Yahoo filings are unavailable. SEC data is best effort and not a hard requirement for non-US symbols.
 
-The current local version is designed to run without external dependencies or API keys. It simulates analyst output using deterministic ticker-specific metrics and a real bid-based orchestrator. This makes the demo runnable immediately while preserving the shape of the future multi-agent system.
+The normalized research packet includes quote fields, profile fields, key statistics, recent price context, disclosure summary, evidence items, warnings, coverage score, and `readyForDebate`.
 
-Follow-up chat also uses bidding. Direct mentions get priority, broad prompts such as "anyone else?" invite multiple analysts, and recent speakers are penalized so the room does not collapse into the same respondent every time. When `OPENAI_API_KEY` is set, selected follow-up agents use the OpenAI Responses API to generate fresh in-character replies; when the API is unavailable, the local orchestrator still produces varied fallback responses.
+Minimum debate threshold:
 
-Files:
+- resolved ticker
+- current quote data
+- company profile or fundamentals/key statistics
 
-- `server.mjs`: local HTTP server, SSE endpoint, debate orchestrator, follow-up endpoint.
-- `public/index.html`: app shell.
-- `public/styles.css`: full-screen trading-room UI.
-- `public/app.js`: browser state, EventSource stream, typewriter rendering, conviction tracker.
-- `scripts/smoke.mjs`: lightweight local smoke test.
+If coverage is too weak, the system emits an insufficient-data error and does not start a fake debate.
 
-## Future Live-Agent Architecture
+## Generation Pipeline
 
-The local deterministic agent generator should be replaced by an agent adapter with this interface:
+The system uses a two-step OpenAI flow:
 
-```text
-agent.generate({
-  persona,
-  ticker,
-  question,
-  marketSnapshot,
-  filings,
-  news,
-  chatHistory,
-  availableTools
-}) -> message
-```
+1. Research synthesis: converts the evidence packet into analyst priors, thesis constraints, open questions, initial conviction, and evidence mapping.
+2. Debate generation: creates 10-14 structured turns from the synthesis and evidence packet.
 
-The bid step can also be model-backed:
+The OpenAI Responses API is called with structured JSON output helpers and Zod validation. If `OPENAI_API_KEY` is missing in real mode, the app fails clearly. It does not fall back to canned debate.
 
-```text
-agent.bid({
-  persona,
-  ticker,
-  question,
-  lastMessages,
-  currentConviction
-}) -> { score: 0..10, reason: string }
-```
+## SSE Contract
 
-This lets the product preserve emergent debate while making each agent genuinely responsive to the shared room.
+`GET /api/debate` streams:
 
-## Data Boundaries
+- `session`
+- `research_stage`
+- `research_packet_summary`
+- `typing`
+- `message`
+- `conviction`
+- `complete`
+- `error`
 
-The product must avoid:
+No `message` event is emitted before research is ready.
 
-- Buy or sell recommendations.
-- Target prices.
-- Fair value claims.
-- Personalized financial advice.
-- Unsupported factual claims about live data.
+## Conviction
 
-All live-market integrations should be shown as evidence inside the debate, not as final recommendations.
+Conviction ranges from -100 to +100. Initial scores come from research synthesis and differ by analyst. Every debate turn includes `convictionDeltaByAgent`; the server applies deltas, clamps values, appends history, and streams an updated `conviction` event.
 
-## Visual System
+## Follow-Up
 
-The Floor should feel like Discord crossed with a Bloomberg terminal and an institutional investment committee. It should be dark, dense, fast, and readable.
+Follow-up opens after the Moderator wrap. The follow-up route reuses:
 
-Principles:
+- session transcript
+- research packet
+- research synthesis
+- analyst priors
+- evidence items
 
-- One shared chat room is the product.
-- The UI must make the debate feel live.
-- The Conviction Tracker should show opinion updating, not prediction.
-- The right rail should support the chat, not dominate it.
-- Disclaimers should be visible but quiet.
+Selection logic respects @mentions, evidence/data questions, macro questions, meta criticism, and broad invitations such as "anyone else?".
+
+## Boundaries
+
+The product must not output:
+
+- buy/sell/hold recommendations
+- target prices
+- fair value claims
+- personalized financial advice
+- fabricated evidence, filings, metrics, or sources
