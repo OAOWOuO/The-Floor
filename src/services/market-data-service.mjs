@@ -20,26 +20,39 @@ export async function fetchMarketData(resolution) {
   }
 
   const symbol = resolution.resolvedTicker;
-  let quote;
-  try {
-    quote = await yahooFinance.quote(symbol);
-  } catch (error) {
-    throw new AppError("market_data_provider_failed", `Could not fetch current quote for ${symbol}.`, 502, {
-      reason: error.message
-    });
-  }
-
-  const [summary, chart] = await Promise.all([
+  const warnings = [];
+  const [quoteResult, summary, chart] = await Promise.all([
+    fetchQuote(symbol),
     fetchQuoteSummary(symbol),
     fetchChart(symbol)
   ]);
 
+  if (quoteResult.warning) warnings.push(quoteResult.warning);
+
+  if (!hasUsableQuote(quoteResult.quote, summary)) {
+    throw new AppError("market_data_provider_failed", `Could not fetch current quote for ${symbol}.`, 502, {
+      reason: quoteResult.warning || "Yahoo Finance did not return usable quote or price summary data."
+    });
+  }
+
   return {
-    quote,
+    quote: quoteResult.quote || {},
     summary,
     chart,
+    warnings,
     fetchedAt: new Date().toISOString()
   };
+}
+
+async function fetchQuote(symbol) {
+  try {
+    return { quote: await yahooFinance.quote(symbol), warning: null };
+  } catch (error) {
+    return {
+      quote: null,
+      warning: `Yahoo Finance quote endpoint unavailable for ${symbol}: ${error.message}`
+    };
+  }
 }
 
 async function fetchQuoteSummary(symbol) {
@@ -54,6 +67,16 @@ async function fetchQuoteSummary(symbol) {
       return {};
     }
   }
+}
+
+function hasUsableQuote(quote, summary) {
+  return Boolean(
+    quote?.regularMarketPrice ||
+      quote?.postMarketPrice ||
+      quote?.preMarketPrice ||
+      summary?.price?.regularMarketPrice ||
+      summary?.summaryDetail?.previousClose
+  );
 }
 
 async function fetchChart(symbol) {

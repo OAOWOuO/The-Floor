@@ -11,14 +11,15 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   const summaryDetail = summary.summaryDetail || {};
   const chartContext = buildRecentPriceContext(marketData?.chart);
   const evidenceItems = [];
-  const researchWarnings = [...(disclosureData?.warnings || [])];
+  const researchWarnings = [...(marketData?.warnings || []), ...(disclosureData?.warnings || [])];
   let evidenceIndex = 1;
 
   const latestPrice = firstNumber(
     quote.regularMarketPrice,
     quote.postMarketPrice,
     quote.preMarketPrice,
-    price.regularMarketPrice
+    price.regularMarketPrice,
+    summaryDetail.previousClose
   );
   const priceChange = firstNumber(quote.regularMarketChange, price.regularMarketChange);
   const marketCap = firstNumber(quote.marketCap, price.marketCap);
