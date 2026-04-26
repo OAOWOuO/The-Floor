@@ -38,6 +38,14 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     firstString(quote.longName, quote.shortName, price.longName, price.shortName, resolution.displayName) ||
     resolution.resolvedTicker;
   const businessSummary = firstString(profile.longBusinessSummary, profile.longBusinessSummary?.fmt);
+  const currency = firstString(
+    quote.currency,
+    price.currency,
+    chartMeta.currency,
+    fallbackQuote.currency,
+    resolution.currency
+  );
+  const marketState = firstString(quote.marketState, price.marketState, fallbackQuote.marketState);
 
   const addEvidence = (sourceType, sourceLabel, claim, importance, analystRelevance, sourceUrl, timestamp) => {
     if (!claim) return null;
@@ -59,7 +67,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   addEvidence(
     "market_data",
     marketData?.quoteSourceLabel || "Yahoo Finance market data",
-    `${resolution.resolvedTicker} last traded around ${formatPrice(latestPrice, resolution.currency || quote.currency || price.currency)} with market cap ${formatLargeNumber(marketCap)} and market state ${quote.marketState || price.marketState || "unknown"}.`,
+    `${resolution.resolvedTicker} last traded around ${formatPrice(latestPrice, currency)} with market cap ${formatLargeNumber(marketCap)} and market state ${marketState || "unknown"}.`,
     9,
     ["kenji", "marcus", "yara"],
     marketData?.quoteSourceUrl || yahooQuoteUrl(resolution.resolvedTicker)
@@ -196,8 +204,8 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     resolvedTicker: resolution.resolvedTicker,
     displayName,
     exchange: quote.fullExchangeName || quote.exchange || price.exchangeName || resolution.exchange || null,
-    currency: quote.currency || price.currency || resolution.currency || null,
-    marketState: quote.marketState || price.marketState || null,
+    currency: currency || null,
+    marketState: marketState || null,
     latestPrice,
     priceChange,
     marketCap,

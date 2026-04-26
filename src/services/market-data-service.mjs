@@ -38,12 +38,13 @@ export async function fetchMarketData(resolution) {
         "Yahoo Finance did not return usable quote or price summary data."
     });
   }
+  const quoteSource = getQuoteSource(symbol, quoteResult.quote, summary, chart, fallbackQuote.quote);
 
   return {
     quote: quoteResult.quote || {},
     fallbackQuote: fallbackQuote.quote || null,
-    quoteSourceLabel: quoteResult.quote ? "Yahoo Finance quote" : fallbackQuote.quote ? "Stooq quote fallback" : null,
-    quoteSourceUrl: quoteResult.quote ? yahooQuoteUrl(symbol) : fallbackQuote.quote?.sourceUrl || null,
+    quoteSourceLabel: quoteSource?.label || null,
+    quoteSourceUrl: quoteSource?.url || null,
     summary,
     chart,
     warnings,
@@ -87,6 +88,22 @@ function hasUsableQuote(quote, summary, chart, fallbackQuote) {
       chart?.meta?.previousClose ||
       fallbackQuote?.regularMarketPrice
   );
+}
+
+function getQuoteSource(symbol, quote, summary, chart, fallbackQuote) {
+  if (quote?.regularMarketPrice || quote?.postMarketPrice || quote?.preMarketPrice) {
+    return { label: "Yahoo Finance quote", url: yahooQuoteUrl(symbol) };
+  }
+  if (summary?.price?.regularMarketPrice || summary?.summaryDetail?.previousClose) {
+    return { label: "Yahoo Finance quoteSummary", url: yahooQuoteUrl(symbol) };
+  }
+  if (chart?.meta?.regularMarketPrice || chart?.meta?.previousClose) {
+    return { label: "Yahoo Finance chart metadata", url: yahooChartUrl(symbol) };
+  }
+  if (fallbackQuote?.regularMarketPrice) {
+    return { label: "Stooq delayed quote fallback", url: fallbackQuote.sourceUrl || null };
+  }
+  return null;
 }
 
 async function fetchChart(symbol) {
@@ -150,6 +167,10 @@ function toStooqSymbol(symbol) {
 
 function yahooQuoteUrl(symbol) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
+}
+
+function yahooChartUrl(symbol) {
+  return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/chart`;
 }
 
 function fixtureMarketData(resolution) {

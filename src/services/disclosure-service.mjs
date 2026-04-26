@@ -125,11 +125,15 @@ async function fetchCompanyFacts(cik, userAgent) {
 
   const facts = await response.json();
   const gaap = facts?.facts?.["us-gaap"] || {};
-  const revenue = latestFact(gaap.Revenues) || latestFact(gaap.RevenueFromContractWithCustomerExcludingAssessedTax) || latestFact(gaap.SalesRevenueNet);
-  const netIncome = latestFact(gaap.NetIncomeLoss);
-  const operatingCashflow = latestFact(gaap.NetCashProvidedByUsedInOperatingActivities);
-  const assets = latestFact(gaap.Assets);
-  const cashAndEquivalents = latestFact(gaap.CashAndCashEquivalentsAtCarryingValue);
+  const revenue = latestFactFrom([
+    gaap.Revenues,
+    gaap.RevenueFromContractWithCustomerExcludingAssessedTax,
+    gaap.SalesRevenueNet
+  ]);
+  const netIncome = latestFactFrom([gaap.NetIncomeLoss]);
+  const operatingCashflow = latestFactFrom([gaap.NetCashProvidedByUsedInOperatingActivities]);
+  const assets = latestFactFrom([gaap.Assets]);
+  const cashAndEquivalents = latestFactFrom([gaap.CashAndCashEquivalentsAtCarryingValue]);
 
   return {
     sourceLabel: "SEC EDGAR companyfacts",
@@ -143,11 +147,17 @@ async function fetchCompanyFacts(cik, userAgent) {
   };
 }
 
-function latestFact(concept) {
+function latestFactFrom(concepts) {
+  return concepts.flatMap((concept) => factRows(concept)).toSorted(sortFactRows)[0];
+}
+
+function factRows(concept) {
   const rows = concept?.units?.USD || concept?.units?.shares || [];
-  return rows
-    .filter((row) => Number.isFinite(Number(row.val)))
-    .toSorted((a, b) => String(b.end || b.filed || "").localeCompare(String(a.end || a.filed || "")))[0];
+  return rows.filter((row) => Number.isFinite(Number(row.val)));
+}
+
+function sortFactRows(a, b) {
+  return String(b.end || b.filed || "").localeCompare(String(a.end || a.filed || ""));
 }
 
 function fixtureDisclosure() {
