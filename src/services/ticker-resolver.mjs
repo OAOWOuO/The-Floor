@@ -3,7 +3,7 @@ import { AppError } from "../utils/errors.mjs";
 import { sanitizeTicker } from "../utils/sanitize.mjs";
 
 const equityTypes = new Set(["EQUITY", "ETF", "MUTUALFUND"]);
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 export async function resolveTicker(input) {
   const query = sanitizeTicker(input);

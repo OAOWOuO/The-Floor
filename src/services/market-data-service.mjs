@@ -1,7 +1,7 @@
 import YahooFinance from "yahoo-finance2";
 import { AppError } from "../utils/errors.mjs";
 
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 const summaryModules = [
   "price",
