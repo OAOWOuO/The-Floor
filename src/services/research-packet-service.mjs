@@ -91,6 +91,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   const opCash = firstNumber(financialData.operatingCashflow, financialData.operatingCashFlow, secFacts.operatingCashflow);
   const secRevenue = firstNumber(secFacts.revenue);
   const secNetIncome = firstNumber(secFacts.netIncome);
+  const secPeriodLabel = secFactPeriodLabel(secFacts);
   if ([revenueGrowth, grossMargins, operatingMargins, fcf, opCash, secRevenue, secNetIncome].some((value) => value !== null)) {
     const hasYahooFundamentals = [revenueGrowth, grossMargins, operatingMargins, fcf].some((value) => value !== null);
     addEvidence(
@@ -100,8 +101,8 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
         revenueGrowth !== null ? `revenue growth ${formatPct(revenueGrowth)}` : null,
         grossMargins !== null ? `gross margin ${formatPct(grossMargins)}` : null,
         operatingMargins !== null ? `operating margin ${formatPct(operatingMargins)}` : null,
-        secRevenue !== null ? `latest SEC revenue ${formatLargeNumber(secRevenue)}` : null,
-        secNetIncome !== null ? `latest SEC net income ${formatLargeNumber(secNetIncome)}` : null,
+        secRevenue !== null ? `latest SEC revenue ${formatLargeNumber(secRevenue)}${secPeriodLabel}` : null,
+        secNetIncome !== null ? `latest SEC net income ${formatLargeNumber(secNetIncome)}${secPeriodLabel}` : null,
         fcf !== null ? `free cash flow ${formatLargeNumber(fcf)}` : null,
         opCash !== null ? `operating cash flow ${formatLargeNumber(opCash)}` : null
       ]
@@ -180,7 +181,10 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     secNetIncome,
     secAssets: firstNumber(secFacts.assets),
     secCashAndEquivalents: firstNumber(secFacts.cashAndEquivalents),
-    secFiscalYear: secFacts.fiscalYear || null
+    secFiscalYear: secFacts.fiscalYear || null,
+    secFiscalPeriod: secFacts.fiscalPeriod || null,
+    secPeriodEnd: secFacts.periodEnd || null,
+    secForm: secFacts.form || null
   };
 
   const hasQuote = latestPrice !== null;
@@ -320,6 +324,15 @@ function formatLargeNumber(value) {
   if (abs >= 1_000_000_000) return `${round(value / 1_000_000_000, 2)}B`;
   if (abs >= 1_000_000) return `${round(value / 1_000_000, 2)}M`;
   return String(round(value, 2));
+}
+
+function secFactPeriodLabel(secFacts) {
+  const parts = [
+    secFacts?.fiscalYear ? `FY${secFacts.fiscalYear}` : null,
+    secFacts?.fiscalPeriod || null,
+    secFacts?.periodEnd ? `period ended ${secFacts.periodEnd}` : null
+  ].filter(Boolean);
+  return parts.length ? ` (${parts.join(" · ")})` : "";
 }
 
 function trimSentence(value, maxLength) {

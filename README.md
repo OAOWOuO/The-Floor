@@ -19,7 +19,7 @@ This is educational analysis only. It is not financial advice, not a stock recom
 ## Data sources
 
 - `yahoo-finance2` server-side for ticker search, quotes, chart data, profile, financial data, key statistics, earnings, and Yahoo `secFilings` where available.
-- SEC EDGAR enrichment is attempted for US-style tickers when Yahoo filings are unavailable.
+- SEC EDGAR enrichment is attempted for US-style tickers; Data tab SEC facts include fiscal period and period-end labels when available.
 - OpenAI Responses API is used for research synthesis, debate planning, moderator synthesis, and follow-up routing.
 
 If coverage is too weak, the app shows an insufficient-data state instead of faking a debate.
@@ -63,7 +63,7 @@ Static mode uses canned browser-side demo content and is useful for checking the
 
 ## API
 
-- `GET /api/health` returns `{ "ok": true }`.
+- `GET /api/health` returns `{ "ok": true, "build": ... }` so deployment health and Render commit metadata can be checked.
 - `GET /api/debate?ticker=MSFT&question=...` streams SSE events:
   - `session`
   - `research_stage`

@@ -31,6 +31,9 @@ assert.equal(packet.readyForDebate, true);
 assert.ok(packet.evidenceItems.length >= 5);
 assert.ok(packet.latestPrice > 0);
 assert.ok(packet.dataCoverageScore >= 80);
+assert.equal(packet.keyStats.secFiscalYear, 2025);
+assert.equal(packet.keyStats.secFiscalPeriod, "FY");
+assert.equal(packet.keyStats.secPeriodEnd, "2025-12-31");
 
 const weakPacket = buildResearchPacket({
   resolution,

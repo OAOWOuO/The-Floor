@@ -990,17 +990,12 @@ function renderDataPanel(packet) {
     ["SEC net income", "secNetIncome", 0],
     ["SEC assets", "secAssets", 0],
     ["SEC cash", "secCashAndEquivalents", 0],
-    ["SEC fiscal year", "secFiscalYear", 0]
+    ["SEC fiscal year", "secFiscalYear", 0],
+    ["SEC fiscal period", "secFiscalPeriod", 0],
+    ["SEC period end", "secPeriodEnd", 0],
+    ["SEC form", "secForm", 0]
   ]) {
-    const value =
-      key === "revenueGrowth" || key === "grossMargins" || key === "operatingMargins"
-        ? formatPercent(stats[key])
-        : key === "secFiscalYear"
-          ? formatValue(stats[key], 0)
-          : key.endsWith("flow") || key === "totalDebt" || key.startsWith("sec")
-          ? formatMarketCap(stats[key])
-          : formatValue(stats[key], digits);
-    keyStats.append(dataRow(label, value));
+    keyStats.append(dataRow(label, formatStatValue(key, stats[key], digits)));
   }
   elements.dataPanel.append(sectionBlock("Key Statistics", keyStats));
 
@@ -1084,6 +1079,22 @@ function dataRow(label, value) {
   right.textContent = value == null || value === "" ? "n/a" : String(value);
   row.append(left, right);
   return row;
+}
+
+function formatStatValue(key, value, digits = 1) {
+  if (key === "revenueGrowth" || key === "grossMargins" || key === "operatingMargins") {
+    return formatPercent(value);
+  }
+  if (["secFiscalPeriod", "secPeriodEnd", "secForm"].includes(key)) {
+    return value || "n/a";
+  }
+  if (key === "secFiscalYear") {
+    return formatValue(value, 0);
+  }
+  if (key.endsWith("flow") || key === "totalDebt" || key.startsWith("sec")) {
+    return formatMarketCap(value);
+  }
+  return formatValue(value, digits);
 }
 
 function focusEvidence(evidenceId) {

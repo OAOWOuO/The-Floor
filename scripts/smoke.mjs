@@ -75,6 +75,8 @@ async function runServerSmoke({ name, env, run }) {
 async function runResearchFlow(baseUrl) {
   const health = await fetch(`${baseUrl}/api/health`);
   if (!health.ok) throw new Error(`Health failed: ${health.status}`);
+  const healthBody = await health.json();
+  if (!healthBody.ok || !healthBody.build?.name) throw new Error("Health response missing build metadata.");
 
   const events = await readSse(`${baseUrl}/api/debate?ticker=MSFT&question=smoke`);
   const names = events.map((event) => event.event);
