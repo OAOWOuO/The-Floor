@@ -21,22 +21,29 @@ export async function fetchMarketData(resolution) {
 
   const symbol = resolution.resolvedTicker;
   const warnings = [];
-  const [quoteResult, summary, chart] = await Promise.all([
+  const [quoteResult, summary, chart, fallbackQuote] = await Promise.all([
     fetchQuote(symbol),
     fetchQuoteSummary(symbol),
-    fetchChart(symbol)
+    fetchChart(symbol),
+    fetchStooqQuote(symbol)
   ]);
 
   if (quoteResult.warning) warnings.push(quoteResult.warning);
+  if (!quoteResult.quote && fallbackQuote.quote && fallbackQuote.warning) warnings.push(fallbackQuote.warning);
 
-  if (!hasUsableQuote(quoteResult.quote, summary)) {
+  if (!hasUsableQuote(quoteResult.quote, summary, chart, fallbackQuote.quote)) {
     throw new AppError("market_data_provider_failed", `Could not fetch current quote for ${symbol}.`, 502, {
-      reason: quoteResult.warning || "Yahoo Finance did not return usable quote or price summary data."
+      reason:
+        [quoteResult.warning, fallbackQuote.warning].filter(Boolean).join(" ") ||
+        "Yahoo Finance did not return usable quote or price summary data."
     });
   }
 
   return {
     quote: quoteResult.quote || {},
+    fallbackQuote: fallbackQuote.quote || null,
+    quoteSourceLabel: quoteResult.quote ? "Yahoo Finance quote" : fallbackQuote.quote ? "Stooq quote fallback" : null,
+    quoteSourceUrl: quoteResult.quote ? yahooQuoteUrl(symbol) : fallbackQuote.quote?.sourceUrl || null,
     summary,
     chart,
     warnings,
@@ -69,13 +76,16 @@ async function fetchQuoteSummary(symbol) {
   }
 }
 
-function hasUsableQuote(quote, summary) {
+function hasUsableQuote(quote, summary, chart, fallbackQuote) {
   return Boolean(
     quote?.regularMarketPrice ||
       quote?.postMarketPrice ||
       quote?.preMarketPrice ||
       summary?.price?.regularMarketPrice ||
-      summary?.summaryDetail?.previousClose
+      summary?.summaryDetail?.previousClose ||
+      chart?.meta?.regularMarketPrice ||
+      chart?.meta?.previousClose ||
+      fallbackQuote?.regularMarketPrice
   );
 }
 
@@ -93,6 +103,53 @@ async function fetchChart(symbol) {
   } catch {
     return null;
   }
+}
+
+async function fetchStooqQuote(symbol) {
+  const stooqSymbol = toStooqSymbol(symbol);
+  if (!stooqSymbol) return { quote: null, warning: null };
+
+  try {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
+    const response = await fetch(url, { headers: { "User-Agent": "The Floor research app" } });
+    if (!response.ok) throw new Error(`Stooq HTTP ${response.status}`);
+    const text = await response.text();
+    const rows = text.trim().split(/\r?\n/);
+    if (rows.length < 2) throw new Error("Stooq returned no data rows.");
+    const headers = rows[0].split(",");
+    const values = rows[1].split(",");
+    const record = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+    const close = Number(record.Close);
+    if (!Number.isFinite(close) || close <= 0) throw new Error("Stooq returned no close price.");
+    const open = Number(record.Open);
+    return {
+      quote: {
+        regularMarketPrice: close,
+        regularMarketChange: Number.isFinite(open) ? close - open : null,
+        currency: "USD",
+        marketState: "DELAYED",
+        sourceUrl: `https://stooq.com/q/?s=${encodeURIComponent(stooqSymbol)}`
+      },
+      warning: `Yahoo Finance quote path was unavailable; used Stooq delayed quote for ${symbol}.`
+    };
+  } catch (error) {
+    return {
+      quote: null,
+      warning: `Stooq quote fallback unavailable for ${symbol}: ${error.message}`
+    };
+  }
+}
+
+function toStooqSymbol(symbol) {
+  const normalized = String(symbol || "").trim().toLowerCase();
+  if (!normalized || /[:]/.test(normalized)) return null;
+  if (normalized.endsWith(".t")) return normalized.replace(/\.t$/, ".jp");
+  if (normalized.includes(".")) return normalized;
+  return `${normalized}.us`;
+}
+
+function yahooQuoteUrl(symbol) {
+  return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
 }
 
 function fixtureMarketData(resolution) {

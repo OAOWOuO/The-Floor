@@ -985,12 +985,19 @@ function renderDataPanel(packet) {
     ["Operating margin", "operatingMargins", 1],
     ["Free cash flow", "freeCashflow", 0],
     ["Operating cash flow", "operatingCashflow", 0],
-    ["Total debt", "totalDebt", 0]
+    ["Total debt", "totalDebt", 0],
+    ["SEC revenue", "secRevenue", 0],
+    ["SEC net income", "secNetIncome", 0],
+    ["SEC assets", "secAssets", 0],
+    ["SEC cash", "secCashAndEquivalents", 0],
+    ["SEC fiscal year", "secFiscalYear", 0]
   ]) {
     const value =
       key === "revenueGrowth" || key === "grossMargins" || key === "operatingMargins"
         ? formatPercent(stats[key])
-        : key.endsWith("flow") || key === "totalDebt"
+        : key === "secFiscalYear"
+          ? formatValue(stats[key], 0)
+          : key.endsWith("flow") || key === "totalDebt" || key.startsWith("sec")
           ? formatMarketCap(stats[key])
           : formatValue(stats[key], digits);
     keyStats.append(dataRow(label, value));

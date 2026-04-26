@@ -4,23 +4,25 @@ export async function fetchDisclosureData(resolution, marketData) {
   }
 
   const yahooFilings = normalizeYahooFilings(marketData?.summary?.secFilings?.filings || []);
+  const sec = await fetchSecFilings(resolution).catch((error) => ({
+    available: false,
+    source: "SEC EDGAR",
+    summary: "SEC EDGAR enrichment unavailable for this symbol.",
+    recentFilings: [],
+    companyFacts: null,
+    warnings: [error.message]
+  }));
+
   if (yahooFilings.length) {
     return {
       available: true,
       source: "Yahoo Finance secFilings",
       summary: `Found ${yahooFilings.length} recent disclosure item(s) from Yahoo Finance.`,
       recentFilings: yahooFilings,
-      warnings: []
+      companyFacts: sec.companyFacts || null,
+      warnings: sec.warnings || []
     };
   }
-
-  const sec = await fetchSecFilings(resolution).catch((error) => ({
-    available: false,
-    source: "SEC EDGAR",
-    summary: "SEC EDGAR enrichment unavailable for this symbol.",
-    recentFilings: [],
-    warnings: [error.message]
-  }));
 
   return sec;
 }
@@ -46,6 +48,7 @@ async function fetchSecFilings(resolution) {
       source: "SEC EDGAR",
       summary: "SEC enrichment was skipped because this symbol does not look like a US EDGAR ticker.",
       recentFilings: [],
+      companyFacts: null,
       warnings: ["SEC data unavailable or not applicable."]
     };
   }
@@ -67,14 +70,18 @@ async function fetchSecFilings(resolution) {
       source: "SEC EDGAR",
       summary: "SEC ticker lookup did not find this symbol.",
       recentFilings: [],
+      companyFacts: null,
       warnings: ["SEC CIK not found."]
     };
   }
 
   const cik = String(match.cik_str).padStart(10, "0");
-  const submissionsResponse = await fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, {
-    headers: { "User-Agent": userAgent, Accept: "application/json" }
-  });
+  const [submissionsResponse, companyFacts] = await Promise.all([
+    fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, {
+      headers: { "User-Agent": userAgent, Accept: "application/json" }
+    }),
+    fetchCompanyFacts(cik, userAgent)
+  ]);
 
   if (!submissionsResponse.ok) {
     throw new Error(`SEC submissions lookup failed (${submissionsResponse.status}).`);
@@ -102,8 +109,45 @@ async function fetchSecFilings(resolution) {
       ? `Found ${recentFilings.length} recent SEC disclosure item(s).`
       : "SEC lookup succeeded, but no recent core filings were found.",
     recentFilings,
+    companyFacts,
     warnings: recentFilings.length ? [] : ["No recent core SEC filings found."]
   };
+}
+
+async function fetchCompanyFacts(cik, userAgent) {
+  const response = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
+    headers: { "User-Agent": userAgent, Accept: "application/json" }
+  }).catch(() => null);
+
+  if (!response?.ok) {
+    return null;
+  }
+
+  const facts = await response.json();
+  const gaap = facts?.facts?.["us-gaap"] || {};
+  const revenue = latestFact(gaap.Revenues) || latestFact(gaap.RevenueFromContractWithCustomerExcludingAssessedTax) || latestFact(gaap.SalesRevenueNet);
+  const netIncome = latestFact(gaap.NetIncomeLoss);
+  const operatingCashflow = latestFact(gaap.NetCashProvidedByUsedInOperatingActivities);
+  const assets = latestFact(gaap.Assets);
+  const cashAndEquivalents = latestFact(gaap.CashAndCashEquivalentsAtCarryingValue);
+
+  return {
+    sourceLabel: "SEC EDGAR companyfacts",
+    sourceUrl: `https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`,
+    fiscalYear: revenue?.fy || netIncome?.fy || operatingCashflow?.fy || null,
+    revenue: revenue?.val ?? null,
+    netIncome: netIncome?.val ?? null,
+    operatingCashflow: operatingCashflow?.val ?? null,
+    assets: assets?.val ?? null,
+    cashAndEquivalents: cashAndEquivalents?.val ?? null
+  };
+}
+
+function latestFact(concept) {
+  const rows = concept?.units?.USD || concept?.units?.shares || [];
+  return rows
+    .filter((row) => Number.isFinite(Number(row.val)))
+    .toSorted((a, b) => String(b.end || b.filed || "").localeCompare(String(a.end || a.filed || "")))[0];
 }
 
 function fixtureDisclosure() {
@@ -127,7 +171,16 @@ function fixtureDisclosure() {
         url: "https://www.sec.gov/ixviewer/doc/action"
       }
     ],
+    companyFacts: {
+      sourceLabel: "SEC EDGAR companyfacts fixture",
+      sourceUrl: "https://data.sec.gov/api/xbrl/companyfacts/CIK0000000000.json",
+      fiscalYear: 2025,
+      revenue: 245000000000,
+      netIncome: 88000000000,
+      operatingCashflow: 118500000000,
+      assets: 512000000000,
+      cashAndEquivalents: 78000000000
+    },
     warnings: []
   };
 }
-

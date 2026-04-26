@@ -6,10 +6,13 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   const summary = marketData?.summary || {};
   const profile = summary.assetProfile || summary.summaryProfile || {};
   const price = summary.price || {};
+  const fallbackQuote = marketData?.fallbackQuote || {};
+  const chartMeta = marketData?.chart?.meta || {};
   const financialData = summary.financialData || {};
   const keyStatistics = summary.defaultKeyStatistics || {};
   const summaryDetail = summary.summaryDetail || {};
   const chartContext = buildRecentPriceContext(marketData?.chart);
+  const secFacts = disclosureData?.companyFacts || {};
   const evidenceItems = [];
   const researchWarnings = [...(marketData?.warnings || []), ...(disclosureData?.warnings || [])];
   let evidenceIndex = 1;
@@ -19,9 +22,17 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     quote.postMarketPrice,
     quote.preMarketPrice,
     price.regularMarketPrice,
-    summaryDetail.previousClose
+    summaryDetail.previousClose,
+    chartMeta.regularMarketPrice,
+    chartMeta.previousClose,
+    fallbackQuote.regularMarketPrice
   );
-  const priceChange = firstNumber(quote.regularMarketChange, price.regularMarketChange);
+  const priceChange = firstNumber(
+    quote.regularMarketChange,
+    price.regularMarketChange,
+    fallbackQuote.regularMarketChange,
+    chartMeta.regularMarketPrice && chartMeta.previousClose ? chartMeta.regularMarketPrice - chartMeta.previousClose : null
+  );
   const marketCap = firstNumber(quote.marketCap, price.marketCap);
   const displayName =
     firstString(quote.longName, quote.shortName, price.longName, price.shortName, resolution.displayName) ||
@@ -47,11 +58,11 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
 
   addEvidence(
     "market_data",
-    "Yahoo Finance quote",
+    marketData?.quoteSourceLabel || "Yahoo Finance market data",
     `${resolution.resolvedTicker} last traded around ${formatPrice(latestPrice, resolution.currency || quote.currency || price.currency)} with market cap ${formatLargeNumber(marketCap)} and market state ${quote.marketState || price.marketState || "unknown"}.`,
     9,
     ["kenji", "marcus", "yara"],
-    yahooQuoteUrl(resolution.resolvedTicker)
+    marketData?.quoteSourceUrl || yahooQuoteUrl(resolution.resolvedTicker)
   );
 
   if (businessSummary) {
@@ -69,15 +80,20 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   const grossMargins = toNumber(financialData.grossMargins);
   const operatingMargins = toNumber(financialData.operatingMargins);
   const fcf = firstNumber(financialData.freeCashflow, financialData.freeCashFlow);
-  const opCash = firstNumber(financialData.operatingCashflow, financialData.operatingCashFlow);
-  if ([revenueGrowth, grossMargins, operatingMargins, fcf, opCash].some((value) => value !== null)) {
+  const opCash = firstNumber(financialData.operatingCashflow, financialData.operatingCashFlow, secFacts.operatingCashflow);
+  const secRevenue = firstNumber(secFacts.revenue);
+  const secNetIncome = firstNumber(secFacts.netIncome);
+  if ([revenueGrowth, grossMargins, operatingMargins, fcf, opCash, secRevenue, secNetIncome].some((value) => value !== null)) {
+    const hasYahooFundamentals = [revenueGrowth, grossMargins, operatingMargins, fcf].some((value) => value !== null);
     addEvidence(
       "fundamentals",
-      "Yahoo Finance financialData",
+      hasYahooFundamentals ? "Yahoo Finance financialData" : "SEC EDGAR companyfacts",
       [
         revenueGrowth !== null ? `revenue growth ${formatPct(revenueGrowth)}` : null,
         grossMargins !== null ? `gross margin ${formatPct(grossMargins)}` : null,
         operatingMargins !== null ? `operating margin ${formatPct(operatingMargins)}` : null,
+        secRevenue !== null ? `latest SEC revenue ${formatLargeNumber(secRevenue)}` : null,
+        secNetIncome !== null ? `latest SEC net income ${formatLargeNumber(secNetIncome)}` : null,
         fcf !== null ? `free cash flow ${formatLargeNumber(fcf)}` : null,
         opCash !== null ? `operating cash flow ${formatLargeNumber(opCash)}` : null
       ]
@@ -85,7 +101,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
         .join("; ") + ".",
       8,
       ["marcus", "yara", "kenji"],
-      yahooAnalysisUrl(resolution.resolvedTicker)
+      hasYahooFundamentals ? yahooAnalysisUrl(resolution.resolvedTicker) : secFacts.sourceUrl
     );
   }
 
@@ -151,7 +167,12 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     operatingMargins,
     freeCashflow: fcf,
     operatingCashflow: opCash,
-    totalDebt: firstNumber(financialData.totalDebt)
+    totalDebt: firstNumber(financialData.totalDebt),
+    secRevenue,
+    secNetIncome,
+    secAssets: firstNumber(secFacts.assets),
+    secCashAndEquivalents: firstNumber(secFacts.cashAndEquivalents),
+    secFiscalYear: secFacts.fiscalYear || null
   };
 
   const hasQuote = latestPrice !== null;
