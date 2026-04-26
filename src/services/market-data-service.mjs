@@ -1,5 +1,7 @@
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
 import { AppError } from "../utils/errors.mjs";
+
+const yahooFinance = new YahooFinance();
 
 const summaryModules = [
   "price",
@@ -154,4 +156,3 @@ function fixtureMarketData(resolution) {
     }
   };
 }
-

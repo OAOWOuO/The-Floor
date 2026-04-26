@@ -1,8 +1,9 @@
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
 import { AppError } from "../utils/errors.mjs";
 import { sanitizeTicker } from "../utils/sanitize.mjs";
 
 const equityTypes = new Set(["EQUITY", "ETF", "MUTUALFUND"]);
+const yahooFinance = new YahooFinance();
 
 export async function resolveTicker(input) {
   const query = sanitizeTicker(input);
@@ -106,4 +107,3 @@ function fixtureResolution(query) {
     }
   );
 }
-
