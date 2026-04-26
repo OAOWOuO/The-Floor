@@ -15,12 +15,25 @@ const state = {
   researchPacket: null,
   evidenceMap: new Map(),
   activeRoomTab: "debate",
+  experienceMode: new URLSearchParams(window.location.search).get("live") === "1" ? "live" : "showcase",
+  serverCapabilities: null,
   lastError: null,
   canvasStarted: false
 };
 
 const elements = {
   form: document.querySelector("#debate-form"),
+  experienceButtons: document.querySelectorAll("[data-experience-mode]"),
+  showcasePanel: document.querySelector("#showcase-panel"),
+  livePanel: document.querySelector("#live-panel"),
+  sampleTickerButtons: document.querySelectorAll("[data-showcase-ticker]"),
+  liveStatusLabel: document.querySelector("#live-status-label"),
+  liveStatusValue: document.querySelector("#live-status-value"),
+  apiKeyHelper: document.querySelector("#api-key-helper"),
+  generateEnvButton: document.querySelector("#generate-env-button"),
+  copyEnvButton: document.querySelector("#copy-env-button"),
+  clearKeyButton: document.querySelector("#clear-key-button"),
+  apiKeyOutput: document.querySelector("#api-key-output"),
   ticker: document.querySelector("#ticker-input"),
   question: document.querySelector("#question-input"),
   begin: document.querySelector("#begin-button"),
@@ -56,6 +69,9 @@ const fallbackAgents = [
 state.agents = fallbackAgents;
 renderAgents();
 startMarketCanvas();
+setExperienceMode(state.experienceMode);
+refreshHostedStatus();
+updateApiKeyHelper();
 
 elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -71,17 +87,113 @@ for (const button of elements.roomTabButtons) {
   button.addEventListener("click", () => setRoomTab(button.dataset.roomTab));
 }
 
+for (const button of elements.experienceButtons) {
+  button.addEventListener("click", () => setExperienceMode(button.dataset.experienceMode));
+}
+
+for (const button of elements.sampleTickerButtons) {
+  button.addEventListener("click", () => {
+    elements.ticker.value = button.dataset.showcaseTicker;
+    setExperienceMode("showcase");
+    beginDebate();
+  });
+}
+
+elements.generateEnvButton.addEventListener("click", updateApiKeyHelper);
+elements.apiKeyHelper.addEventListener("input", updateApiKeyHelper);
+elements.copyEnvButton.addEventListener("click", copyEnvHelper);
+elements.clearKeyButton.addEventListener("click", () => {
+  elements.apiKeyHelper.value = "";
+  updateApiKeyHelper();
+});
+
+function setExperienceMode(mode) {
+  state.experienceMode = mode === "live" ? "live" : "showcase";
+  for (const button of elements.experienceButtons) {
+    button.classList.toggle("active", button.dataset.experienceMode === state.experienceMode);
+  }
+  elements.showcasePanel.hidden = state.experienceMode !== "showcase";
+  elements.livePanel.hidden = state.experienceMode !== "live";
+  elements.begin.textContent = state.experienceMode === "live" ? "Begin live research" : "Play showcase";
+  elements.roomTitle.textContent =
+    state.experienceMode === "live" ? "Live research mode" : "Showcase replay ready";
+  elements.sessionChip.textContent = state.experienceMode === "live" ? "Self-host" : "Showcase";
+  setStatus(state.experienceMode === "live" ? "Live setup" : "Showcase", false);
+}
+
+async function refreshHostedStatus() {
+  try {
+    const response = await fetch("/api/health");
+    const payload = await response.json();
+    state.serverCapabilities = payload.capabilities || {};
+    renderHostedStatus(payload);
+  } catch {
+    elements.liveStatusLabel.textContent = "Hosted status";
+    elements.liveStatusValue.textContent = "Unavailable";
+  }
+}
+
+function renderHostedStatus(payload) {
+  const liveEnabled = Boolean(payload?.capabilities?.liveResearch);
+  const commit = payload?.build?.render?.gitCommit?.slice(0, 7);
+  elements.liveStatusLabel.textContent = liveEnabled ? "Hosted live mode" : "Hosted live mode";
+  elements.liveStatusValue.textContent = liveEnabled ? "Enabled" : "Self-host required";
+  elements.liveStatusValue.classList.toggle("positive", liveEnabled);
+  elements.liveStatusValue.classList.toggle("neutral", !liveEnabled);
+  if (commit) elements.liveStatusLabel.textContent = `Hosted build ${commit}`;
+}
+
+function updateApiKeyHelper() {
+  const key = elements.apiKeyHelper.value.trim();
+  const keyValue = key || "<your OpenAI API key>";
+  elements.apiKeyOutput.textContent = [
+    "# Local development",
+    `export OPENAI_API_KEY=${shellQuote(keyValue)}`,
+    "export OPENAI_MODEL='gpt-5.4-mini'",
+    "npm install",
+    "npm run dev",
+    "",
+    "# Render environment variables",
+    `OPENAI_API_KEY=${keyValue}`,
+    "OPENAI_MODEL=gpt-5.4-mini",
+    "HOST=0.0.0.0",
+    "",
+    "# The public hosted demo never receives this key."
+  ].join("\n");
+}
+
+async function copyEnvHelper() {
+  updateApiKeyHelper();
+  try {
+    await navigator.clipboard.writeText(elements.apiKeyOutput.textContent);
+    elements.copyEnvButton.textContent = "Copied";
+    window.setTimeout(() => {
+      elements.copyEnvButton.textContent = "Copy";
+    }, 1200);
+  } catch {
+    elements.copyEnvButton.textContent = "Select text";
+    window.setTimeout(() => {
+      elements.copyEnvButton.textContent = "Copy";
+    }, 1200);
+  }
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
+}
+
 function beginDebate() {
   const ticker = elements.ticker.value.trim();
   const question = elements.question.value.trim();
 
   if (state.eventSource) state.eventSource.close();
 
-  if (isStaticDemoHost()) {
-    beginStaticDebate(ticker, question);
+  if (state.experienceMode === "showcase" || isStaticDemoHost()) {
+    beginStaticDebate(ticker, question, "Showcase replay");
     return;
   }
 
+  state.staticRunId += 1;
   state.mode = "server";
   state.sessionId = null;
   state.complete = false;
@@ -123,7 +235,7 @@ function beginDebate() {
     renderConviction();
     elements.roomTitle.textContent = `${payload.ticker || ticker.toUpperCase()} research in progress`;
     elements.sessionChip.textContent = payload.sessionId.slice(0, 8);
-    setStatus(payload.mode === "static" ? "Static demo" : "Researching", true);
+    setStatus(payload.mode === "static" ? "Showcase replay" : "Researching", true);
   });
 
   source.addEventListener("research_stage", (event) => {
@@ -273,7 +385,7 @@ function queueMessage(message, animated) {
   return state.messageQueue;
 }
 
-async function beginStaticDebate(ticker, question, label = "Static demo") {
+async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   const runId = (state.staticRunId += 1);
   const normalizedTicker = ticker.toUpperCase().replace(/[^A-Z0-9.:-]/g, "").slice(0, 14) || "NVDA";
   const random = mulberry32(hashString(`${normalizedTicker}:${question || "demo"}`));
@@ -461,7 +573,7 @@ function staticMessage(agentId, body, citations, effects) {
     timestamp: timestamp(),
     body,
     citations,
-    bid: { score: 8.4, reason: "Static demo bid selected this speaker." },
+    bid: { score: 8.4, reason: "Showcase replay selected this speaker." },
     effects
   };
 }
@@ -478,9 +590,9 @@ function buildStaticModerator(ticker) {
     body: [
       `Moderator wrap on ${ticker}:`,
       "",
-      "The core disagreement is evidence quality. Marcus wants to underwrite revision momentum and operating leverage. Yara refuses to accept narrative until cash conversion improves. Kenji says the distribution is wider than anyone's language. Sofia separates fundamentals from discount-rate and policy risk. The Skeptic's strongest intervention was forcing the room to stop treating proxies as direct demand evidence.",
+      "This showcase replay demonstrates the debate mechanics: evidence quality, speaker routing, conviction updates, and follow-up behavior. Marcus wants to underwrite revision momentum and operating leverage. Yara refuses to accept narrative until cash conversion improves. Kenji says the distribution is wider than anyone's language. Sofia separates fundamentals from discount-rate and policy risk. The Skeptic's strongest intervention was forcing the room to stop treating proxies as direct demand evidence.",
       "",
-      "No recommendation. This is a debate map, not a trade instruction."
+      "No recommendation. This is a public replay, not live research or a trade instruction."
     ].join("\n"),
     citations: ["debate transcript", "conviction tracker"],
     effects: {}
@@ -623,40 +735,40 @@ function buildStaticMetrics(ticker, random) {
 function buildStaticResearchPacket(ticker, metrics) {
   return {
     resolvedTicker: ticker,
-    displayName: `${ticker} Static Demo`,
+    displayName: `${ticker} Showcase Replay`,
     exchange: "DEMO",
     currency: "USD",
-    marketState: "STATIC",
+    marketState: "REPLAY",
     latestPrice: 100,
     priceChange: 1.2,
     marketCap: 100000000000,
     sector: "Demo",
-    industry: "Static mode",
-    businessSummary: "Static demo mode shows the room mechanics with canned data. Normal mode researches the ticker first.",
+    industry: "Showcase mode",
+    businessSummary: "Showcase mode demonstrates the room mechanics with a saved replay packet. Live mode researches the ticker first in a self-hosted deployment.",
     keyStats: {
       trailingPE: metrics.pe,
       beta: metrics.beta,
       revenueGrowth: metrics.revenueGrowthPct / 100,
       grossMargins: metrics.grossMarginPct / 100
     },
-    recentPriceContext: { periodReturnPct: 8.4, observations: ["Static price context for demo mode only."] },
-    filingOrDisclosureSummary: { available: false, summary: "Static mode does not fetch filings.", recentFilings: [] },
+    recentPriceContext: { periodReturnPct: 8.4, observations: ["Saved replay price context for showcase mode only."] },
+    filingOrDisclosureSummary: { available: false, summary: "Showcase replay does not fetch live filings.", recentFilings: [] },
     evidenceItems: [
       {
         evidenceId: "D01",
-        sourceType: "static_demo",
-        sourceLabel: "Static demo packet",
+        sourceType: "showcase_replay",
+        sourceLabel: "Showcase replay packet",
         sourceUrl: null,
         timestamp: new Date().toISOString(),
-        claim: "This packet is explicit static demo data, not real market research.",
+        claim: "This packet is a saved public showcase replay, not live market research.",
         importance: 1,
         analystRelevance: ["skeptic"]
       }
     ],
-    researchWarnings: ["Static demo mode is not market research."],
+    researchWarnings: ["Showcase replay is not live market research."],
     dataCoverageScore: 0,
     readyForDebate: true,
-    companySnapshot: "Explicit static demo. Use normal mode with an API key for real research.",
+    companySnapshot: "Saved showcase replay. Self-host with an OpenAI API key for live research.",
     analystPriors: null
   };
 }

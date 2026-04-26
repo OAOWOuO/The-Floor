@@ -8,8 +8,10 @@ This is educational analysis only. It is not financial advice, not a stock recom
 
 ## What changed
 
-- Real research mode is now the default.
-- Static/canned demo mode only runs with `?static=1`.
+- Real research mode is the default for self-hosted Live deployments.
+- The public UI is split into `Showcase` and `Live` tabs.
+- Showcase mode runs a saved replay-style experience with no API key or token spend.
+- Live mode is for self-hosted or private deployments with an OpenAI API key.
 - The room shows visible research stages before debate begins.
 - The center room includes a `Data` tab with market snapshot, key stats, disclosures, evidence cards, and the raw research packet.
 - The debate is blocked until the research packet passes the minimum evidence threshold.
@@ -39,7 +41,7 @@ Then open:
 http://localhost:3000
 ```
 
-For Render/Railway, set `HOST=0.0.0.0` and configure `OPENAI_API_KEY` in the service environment.
+For Render/Railway, fork the repo, set `HOST=0.0.0.0`, and configure `OPENAI_API_KEY` in the service environment. The public hosted demo does not collect visitor API keys.
 
 Optional environment variables:
 
@@ -51,19 +53,21 @@ export FLOOR_DEBATE_MS="90000"
 export SEC_USER_AGENT="The Floor contact@example.com"
 ```
 
-## Static demo mode
+## Showcase mode
 
-Static demo mode is deliberately explicit:
+The public hosted site defaults to Showcase mode. It demonstrates the live-room mechanics without spending API tokens or accepting user API keys.
+
+The legacy explicit URL still works:
 
 ```text
 http://localhost:3000/?static=1
 ```
 
-Static mode uses canned browser-side demo content and is useful for checking the UI without API keys. It should not be confused with real research mode.
+Showcase mode uses browser-side saved replay content and should not be confused with live research mode.
 
 ## API
 
-- `GET /api/health` returns `{ "ok": true, "build": ... }` so deployment health and Render commit metadata can be checked.
+- `GET /api/health` returns `{ "ok": true, "build": ..., "capabilities": ... }` so deployment health, Render commit metadata, and hosted live-mode availability can be checked.
 - `GET /api/debate?ticker=MSFT&question=...` streams SSE events:
   - `session`
   - `research_stage`

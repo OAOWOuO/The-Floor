@@ -14,14 +14,47 @@
         <div class="brand-block">
           <p class="eyebrow">THE FLOOR</p>
           <h1>Five analysts. One stock. No mercy.</h1>
-          <p class="desk-copy">A live group debate room for investment arguments, assumptions, and conviction updates.</p>
+          <p class="desk-copy">A research-first debate room for investment arguments, assumptions, and conviction updates.</p>
         </div>
+
+        <nav class="experience-tabs" aria-label="Experience mode">
+          <button type="button" class="experience-tab active" data-experience-mode="showcase">Showcase</button>
+          <button type="button" class="experience-tab" data-experience-mode="live">Live</button>
+        </nav>
+
+        <section id="showcase-panel" class="experience-panel">
+          <p class="mode-note">Public demo runs saved replay mechanics with no API key or token spend.</p>
+          <div class="sample-row" aria-label="Showcase tickers">
+            <button type="button" data-showcase-ticker="NVDA">NVDA</button>
+            <button type="button" data-showcase-ticker="MSFT">MSFT</button>
+            <button type="button" data-showcase-ticker="TSLA">TSLA</button>
+            <button type="button" data-showcase-ticker="AMD">AMD</button>
+          </div>
+        </section>
+
+        <section id="live-panel" class="experience-panel" hidden>
+          <div class="live-status-card">
+            <span id="live-status-label">Checking live mode...</span>
+            <strong id="live-status-value">Unknown</strong>
+          </div>
+          <p class="mode-note">This hosted demo does not collect visitor API keys. For real live research, fork the repo or deploy your own Render service.</p>
+
+          <label for="api-key-helper">Local API key helper</label>
+          <input id="api-key-helper" type="password" autocomplete="off" spellcheck="false" placeholder="sk-... stays in this browser only">
+          <div class="helper-actions">
+            <button type="button" id="generate-env-button">Generate env</button>
+            <button type="button" id="copy-env-button">Copy</button>
+            <button type="button" id="clear-key-button">Clear</button>
+          </div>
+          <pre id="api-key-output" class="env-output">Paste a key to generate local/Render env commands. Nothing is sent to this server.</pre>
+          <a class="repo-link" href="https://github.com/OAOWOuO/The-Floor" target="_blank" rel="noreferrer">Fork The Floor on GitHub</a>
+        </section>
 
         <form id="debate-form" class="ticker-form">
           <label for="ticker-input">Ticker</label>
           <div class="ticker-row">
             <input id="ticker-input" name="ticker" value="NVDA" autocomplete="off" spellcheck="false">
-            <button type="submit" id="begin-button">Begin debate</button>
+            <button type="submit" id="begin-button">Play showcase</button>
           </div>
 
           <label for="question-input">Context question</label>
@@ -87,7 +120,7 @@
 
         <section class="method-note">
           <p class="eyebrow">ORCHESTRATOR</p>
-          <p>The room researches first, then debates from the same packet. Static demo mode only runs with <strong>?static=1</strong>.</p>
+          <p>Showcase replays the room mechanics without API spend. Live mode researches first, then debates from the same packet when self-hosted with an OpenAI key.</p>
         </section>
       </aside>
     </div>

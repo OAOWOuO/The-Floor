@@ -77,6 +77,9 @@ async function runResearchFlow(baseUrl) {
   if (!health.ok) throw new Error(`Health failed: ${health.status}`);
   const healthBody = await health.json();
   if (!healthBody.ok || !healthBody.build?.name) throw new Error("Health response missing build metadata.");
+  if (healthBody.capabilities?.acceptsBrowserApiKeys !== false) {
+    throw new Error("Health response must disclose that browser API keys are not accepted.");
+  }
 
   const events = await readSse(`${baseUrl}/api/debate?ticker=MSFT&question=smoke`);
   const names = events.map((event) => event.event);
