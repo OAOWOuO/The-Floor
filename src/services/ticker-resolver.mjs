@@ -1,9 +1,8 @@
-import YahooFinance from "yahoo-finance2";
 import { AppError } from "../utils/errors.mjs";
 import { sanitizeTicker } from "../utils/sanitize.mjs";
 
 const equityTypes = new Set(["EQUITY", "ETF", "MUTUALFUND"]);
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+let yahooFinance;
 
 export async function resolveTicker(input) {
   const query = sanitizeTicker(input);
@@ -17,7 +16,8 @@ export async function resolveTicker(input) {
 
   let result;
   try {
-    result = await yahooFinance.search(query, {
+    const yahoo = await getYahooFinance();
+    result = await yahoo.search(query, {
       quotesCount: 8,
       newsCount: 0,
       enableFuzzyQuery: true
@@ -53,6 +53,14 @@ export async function resolveTicker(input) {
     currency: selected.currency || null,
     likelyMatches
   };
+}
+
+async function getYahooFinance() {
+  if (!yahooFinance) {
+    const { default: YahooFinance } = await import("yahoo-finance2");
+    yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+  }
+  return yahooFinance;
 }
 
 function normalizeMatches(quotes) {

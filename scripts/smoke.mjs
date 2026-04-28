@@ -75,6 +75,12 @@ async function runServerSmoke({ name, env, run }) {
 async function runResearchFlow(baseUrl) {
   const health = await fetch(`${baseUrl}/api/health`);
   if (!health.ok) throw new Error(`Health failed: ${health.status}`);
+  if (health.headers.get("x-content-type-options") !== "nosniff") {
+    throw new Error("Health response missing security headers.");
+  }
+  if (!health.headers.get("content-security-policy")?.includes("default-src 'self'")) {
+    throw new Error("Health response missing content security policy.");
+  }
   const healthBody = await health.json();
   if (!healthBody.ok || !healthBody.build?.name) throw new Error("Health response missing build metadata.");
   if (healthBody.capabilities?.acceptsBrowserApiKeys !== false) {
@@ -124,6 +130,14 @@ async function runResearchFlow(baseUrl) {
   }
   if (!secondFollowUp.messages.every((message) => message.citedEvidenceIds?.length)) {
     throw new Error("Follow-up did not cite the session evidence packet.");
+  }
+
+  const oversized = await postRawFollowUp(baseUrl, {
+    sessionId: session.sessionId,
+    message: "x".repeat(10_000)
+  });
+  if (oversized.status !== 413 || oversized.body?.error?.code !== "payload_too_large") {
+    throw new Error(`Expected oversized follow-up to fail with 413, got ${JSON.stringify(oversized)}`);
   }
 }
 
@@ -204,4 +218,17 @@ async function postFollowUp(baseUrl, sessionId, message) {
   }
 
   return body;
+}
+
+async function postRawFollowUp(baseUrl, payload) {
+  const response = await fetch(`${baseUrl}/api/followup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  return {
+    status: response.status,
+    body: await response.json().catch(() => ({}))
+  };
 }

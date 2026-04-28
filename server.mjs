@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { handleDebate } from "./src/routes/debate-route.mjs";
 import { handleFollowUp } from "./src/routes/followup-route.mjs";
 import { handleHealth } from "./src/routes/health-route.mjs";
-import { sendJson } from "./src/utils/http.mjs";
+import { securityHeaders, sendJson } from "./src/utils/http.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -83,10 +83,10 @@ async function serveStatic(pathname, response) {
     const fileStat = await stat(filePath);
     if (!fileStat.isFile()) throw new Error("Not a file");
     const ext = path.extname(filePath);
-    response.writeHead(200, {
+    response.writeHead(200, securityHeaders({
       "Content-Type": mimeTypes[ext] || "application/octet-stream",
       "Cache-Control": "no-cache"
-    });
+    }));
     createReadStream(filePath).pipe(response);
   } catch {
     sendJson(response, 404, { error: "Not found" });

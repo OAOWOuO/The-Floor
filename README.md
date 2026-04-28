@@ -51,6 +51,8 @@ export OPENAI_RESEARCH_REASONING="medium"
 export OPENAI_DEBATE_REASONING="low"
 export FLOOR_DEBATE_MS="90000"
 export SEC_USER_AGENT="The Floor contact@example.com"
+export MAX_FOLLOWUPS_PER_SESSION="8"
+export MAX_FOLLOWUP_BODY_BYTES="8192"
 ```
 
 ## Showcase mode
@@ -64,6 +66,14 @@ http://localhost:3000/?static=1
 ```
 
 Showcase mode uses browser-side saved replay content and should not be confused with live research mode.
+
+## Production posture
+
+- The hosted public demo does not accept browser-submitted API keys.
+- OpenAI keys belong in server-side environment variables only.
+- Basic security headers are sent for static files, JSON APIs, and SSE streams.
+- Follow-up bodies and per-session follow-up counts are capped to prevent accidental abuse.
+- `/api/health` exposes deployment capabilities so the UI can avoid pretending Live mode is available when no server key is configured.
 
 ## API
 

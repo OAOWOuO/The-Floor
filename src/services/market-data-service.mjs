@@ -1,7 +1,6 @@
-import YahooFinance from "yahoo-finance2";
 import { AppError } from "../utils/errors.mjs";
 
-const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+let yahooFinance;
 
 const summaryModules = [
   "price",
@@ -54,7 +53,8 @@ export async function fetchMarketData(resolution) {
 
 async function fetchQuote(symbol) {
   try {
-    return { quote: await yahooFinance.quote(symbol), warning: null };
+    const yahoo = await getYahooFinance();
+    return { quote: await yahoo.quote(symbol), warning: null };
   } catch (error) {
     return {
       quote: null,
@@ -65,10 +65,12 @@ async function fetchQuote(symbol) {
 
 async function fetchQuoteSummary(symbol) {
   try {
-    return await yahooFinance.quoteSummary(symbol, { modules: summaryModules });
+    const yahoo = await getYahooFinance();
+    return await yahoo.quoteSummary(symbol, { modules: summaryModules });
   } catch {
     try {
-      return await yahooFinance.quoteSummary(symbol, {
+      const yahoo = await getYahooFinance();
+      return await yahoo.quoteSummary(symbol, {
         modules: ["price", "assetProfile", "summaryProfile", "financialData", "defaultKeyStatistics", "summaryDetail"]
       });
     } catch {
@@ -112,7 +114,8 @@ async function fetchChart(symbol) {
   period1.setMonth(period1.getMonth() - 6);
 
   try {
-    return await yahooFinance.chart(symbol, {
+    const yahoo = await getYahooFinance();
+    return await yahoo.chart(symbol, {
       period1,
       period2,
       interval: "1d"
@@ -120,6 +123,14 @@ async function fetchChart(symbol) {
   } catch {
     return null;
   }
+}
+
+async function getYahooFinance() {
+  if (!yahooFinance) {
+    const { default: YahooFinance } = await import("yahoo-finance2");
+    yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+  }
+  return yahooFinance;
 }
 
 async function fetchStooqQuote(symbol) {

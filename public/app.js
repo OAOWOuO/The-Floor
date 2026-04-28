@@ -182,6 +182,43 @@ function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
+function renderLiveUnavailable() {
+  if (state.eventSource) state.eventSource.close();
+  state.staticRunId += 1;
+  state.mode = "setup";
+  state.sessionId = null;
+  state.complete = false;
+  state.messageQueue = Promise.resolve();
+  state.researchStages = new Map();
+  state.researchPacket = null;
+  state.evidenceMap = new Map();
+  state.lastError = null;
+  state.conviction = {};
+  state.convictionHistory = {};
+  elements.feed.innerHTML = "";
+  elements.researchTimeline.innerHTML = "";
+  elements.researchTimeline.hidden = true;
+  elements.researchSummary.innerHTML = "";
+  elements.metricsGrid.innerHTML = "";
+  elements.evidenceList.innerHTML = "";
+  elements.coverageChip.textContent = "No packet";
+  renderDataPanel(null);
+  renderConviction();
+  setRoomTab("debate");
+  hideTyping();
+  elements.followupInput.disabled = true;
+  elements.followupButton.disabled = true;
+  elements.begin.disabled = false;
+  elements.roomTitle.textContent = "Live research requires self-hosting";
+  elements.sessionChip.textContent = "Self-host";
+  setStatus("Live setup", false);
+  renderFailure({
+    code: "self_host_required",
+    message:
+      "This public hosted demo does not run visitor-funded live research or collect browser API keys. Use the Live tab helper to fork/deploy your own copy, then add OPENAI_API_KEY in your Render environment."
+  });
+}
+
 function beginDebate() {
   const ticker = elements.ticker.value.trim();
   const question = elements.question.value.trim();
@@ -190,6 +227,11 @@ function beginDebate() {
 
   if (state.experienceMode === "showcase" || isStaticDemoHost()) {
     beginStaticDebate(ticker, question, "Showcase replay");
+    return;
+  }
+
+  if (state.serverCapabilities && !state.serverCapabilities.liveResearch) {
+    renderLiveUnavailable();
     return;
   }
 
