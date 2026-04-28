@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { publicAgents } from "../domain/agents.mjs";
 import { buildStageState, makeStage } from "../domain/research-stages.mjs";
 import { AppError, toPublicError } from "../utils/errors.mjs";
+import { createRateLimiter, getRateLimitSettings } from "../utils/rate-limit.mjs";
 import { sanitizeTicker, sanitizeText, isStaticRequest } from "../utils/sanitize.mjs";
 import { startSse, writeEvent as writeSseEvent } from "../utils/sse.mjs";
 import { saveSession, pruneSessions } from "../services/session-store.mjs";
@@ -18,6 +19,13 @@ import {
   turnToMessage
 } from "../services/debate-service.mjs";
 import { streamStaticDemo } from "../services/static-demo-service.mjs";
+
+const rateLimitSettings = getRateLimitSettings();
+const debateRateLimiter = createRateLimiter({
+  name: "debate",
+  windowMs: rateLimitSettings.debateWindowMs,
+  max: rateLimitSettings.debateMax
+});
 
 export async function handleDebate(request, response, url, options = {}) {
   const ticker = sanitizeTicker(url.searchParams.get("ticker"));
@@ -36,25 +44,27 @@ export async function handleDebate(request, response, url, options = {}) {
     if (!session.closed) writeSseEvent(response, event, payload);
   };
 
-  if (isStaticRequest(url)) {
-    await streamStaticDemo({ response, session, writeEvent, sleep, debateRuntimeMs });
-    response.end();
-    return;
-  }
-
-  writeEvent("session", {
-    sessionId: session.id,
-    ticker: session.ticker,
-    question: session.question,
-    agents: publicAgents,
-    mode: "research"
-  });
-
-  for (const stage of buildStageState()) {
-    writeEvent("research_stage", stage);
-  }
-
   try {
+    debateRateLimiter.consume(request);
+
+    if (isStaticRequest(url)) {
+      await streamStaticDemo({ response, session, writeEvent, sleep, debateRuntimeMs });
+      response.end();
+      return;
+    }
+
+    writeEvent("session", {
+      sessionId: session.id,
+      ticker: session.ticker,
+      question: session.question,
+      agents: publicAgents,
+      mode: "research"
+    });
+
+    for (const stage of buildStageState()) {
+      writeEvent("research_stage", stage);
+    }
+
     if (!ticker) {
       throw new AppError("invalid_ticker", "Enter a real public-market ticker. The app will not fall back to NVDA.", 400);
     }

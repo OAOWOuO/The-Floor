@@ -6,6 +6,8 @@ Five analysts. One stock. No mercy.
 
 [Open the hosted showcase](https://the-floor.onrender.com/) · [Deploy your own on Render](https://render.com/deploy?repo=https://github.com/OAOWOuO/The-Floor)
 
+![The Floor showcase preview](public/assets/showcase-preview.svg)
+
 The Floor is a research-first live AI trading-room debate app. A user enters a listed ticker, the server resolves it, fetches market/profile/stat/disclosure evidence, builds a normalized research packet, asks OpenAI to synthesize analyst priors, then streams a shared multi-agent debate over SSE. The analysts debate from the same evidence packet, cite source chips, and update conviction after every turn.
 
 This is educational analysis only. It is not financial advice, not a stock recommendation system, and not a price prediction tool.
@@ -63,6 +65,8 @@ export FLOOR_DEBATE_MS="90000"
 export SEC_USER_AGENT="The Floor contact@example.com"
 export MAX_FOLLOWUPS_PER_SESSION="8"
 export MAX_FOLLOWUP_BODY_BYTES="8192"
+export RATE_LIMIT_DEBATE_MAX="20"
+export RATE_LIMIT_FOLLOWUP_MAX="60"
 ```
 
 ## Showcase mode
@@ -82,8 +86,10 @@ Showcase mode uses `public/showcases/replays.json` and should not be confused wi
 - The hosted public demo does not accept browser-submitted API keys.
 - OpenAI keys belong in server-side environment variables only.
 - Basic security headers are sent for static files, JSON APIs, and SSE streams.
+- Debate and follow-up routes have lightweight in-memory rate limits for self-hosted deployments.
 - Follow-up bodies and per-session follow-up counts are capped to prevent accidental abuse.
 - `/api/health` exposes deployment capabilities so the UI can avoid pretending Live mode is available when no server key is configured.
+- See [SECURITY.md](SECURITY.md) before turning Live mode into a public, server-funded product.
 
 ## API
 

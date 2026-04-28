@@ -8,6 +8,7 @@ import { buildResearchPacket } from "../src/services/research-packet-service.mjs
 import { createConvictionState, applyConvictionDelta } from "../src/services/conviction-service.mjs";
 import { synthesizeResearch } from "../src/services/synthesis-service.mjs";
 import { AppError } from "../src/utils/errors.mjs";
+import { clientKey, createRateLimiter } from "../src/utils/rate-limit.mjs";
 
 const originalFixture = process.env.THE_FLOOR_FIXTURE_MODE;
 const originalMock = process.env.OPENAI_MOCK;
@@ -53,6 +54,17 @@ const update = applyConvictionDelta(conviction, { marcus: 10, yara: -10, kenji: 
 assert.equal(update.conviction.marcus, 100);
 assert.equal(update.conviction.yara, -100);
 assert.equal(update.convictionHistory.kenji.length, 2);
+
+const mockRequest = { headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1" }, socket: {} };
+assert.equal(clientKey(mockRequest), "203.0.113.10");
+const limiter = createRateLimiter({ name: "unit", windowMs: 1000, max: 2 });
+assert.equal(limiter.consume(mockRequest, { now: 100 }).remaining, 1);
+assert.equal(limiter.consume(mockRequest, { now: 200 }).remaining, 0);
+assert.throws(
+  () => limiter.consume(mockRequest, { now: 300 }),
+  (error) => error instanceof AppError && error.code === "rate_limited" && error.statusCode === 429
+);
+assert.equal(limiter.consume(mockRequest, { now: 1200 }).remaining, 1);
 
 const synthesis = await synthesizeResearch({ researchPacket: packet, question: "smoke" });
 assert.ok(synthesis.company_snapshot.includes("MSFT"));

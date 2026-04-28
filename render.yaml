@@ -20,3 +20,13 @@ services:
         value: 8
       - key: MAX_FOLLOWUP_BODY_BYTES
         value: 8192
+      - key: MAX_JSON_BODY_BYTES
+        value: 16384
+      - key: RATE_LIMIT_DEBATE_WINDOW_MS
+        value: 600000
+      - key: RATE_LIMIT_DEBATE_MAX
+        value: 20
+      - key: RATE_LIMIT_FOLLOWUP_WINDOW_MS
+        value: 600000
+      - key: RATE_LIMIT_FOLLOWUP_MAX
+        value: 60

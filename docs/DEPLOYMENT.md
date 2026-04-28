@@ -59,6 +59,11 @@ OPENAI_DEBATE_REASONING=low
 SEC_USER_AGENT="The Floor contact@example.com"
 MAX_FOLLOWUPS_PER_SESSION=8
 MAX_FOLLOWUP_BODY_BYTES=8192
+MAX_JSON_BODY_BYTES=16384
+RATE_LIMIT_DEBATE_WINDOW_MS=600000
+RATE_LIMIT_DEBATE_MAX=20
+RATE_LIMIT_FOLLOWUP_WINDOW_MS=600000
+RATE_LIMIT_FOLLOWUP_MAX=60
 ```
 
 ## Verify Deployment
@@ -98,7 +103,8 @@ If `liveResearch` is `false`, the server does not have `OPENAI_API_KEY` configur
 - Use an OpenAI project key dedicated to this app.
 - Set a monthly budget limit in the OpenAI dashboard.
 - Rotate the key after public demos or judging sessions.
-- Keep hosted public demo in Showcase mode unless you add authentication, rate limits, and billing.
+- Keep hosted public demo in Showcase mode unless you add authentication, persistent rate limits, and billing.
+- Built-in rate limits are in-memory and useful for demos, but they reset on process restart. Use a persistent limiter before running a high-traffic public live service.
 
 ## CI
 

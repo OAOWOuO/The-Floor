@@ -1,5 +1,6 @@
 import { AppError, toPublicError } from "../utils/errors.mjs";
 import { readJson, sendJson } from "../utils/http.mjs";
+import { createRateLimiter, getRateLimitSettings } from "../utils/rate-limit.mjs";
 import { sanitizeText } from "../utils/sanitize.mjs";
 import { getSession } from "../services/session-store.mjs";
 import {
@@ -9,8 +10,16 @@ import {
 } from "../services/followup-service.mjs";
 import { applyConvictionDelta } from "../services/conviction-service.mjs";
 
+const rateLimitSettings = getRateLimitSettings();
+const followUpRateLimiter = createRateLimiter({
+  name: "follow-up",
+  windowMs: rateLimitSettings.followUpWindowMs,
+  max: rateLimitSettings.followUpMax
+});
+
 export async function handleFollowUp(request, response) {
   try {
+    followUpRateLimiter.consume(request);
     const payload = await readJson(request, { maxBytes: Number(process.env.MAX_FOLLOWUP_BODY_BYTES || 8_192) });
     const session = getSession(payload.sessionId);
     const body = sanitizeText(payload.message, 900);
