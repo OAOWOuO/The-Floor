@@ -12,3 +12,11 @@ services:
         value: 90000
       - key: OPENAI_MODEL
         value: gpt-5.4-mini
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SEC_USER_AGENT
+        value: The Floor contact@example.com
+      - key: MAX_FOLLOWUPS_PER_SESSION
+        value: 8
+      - key: MAX_FOLLOWUP_BODY_BYTES
+        value: 8192

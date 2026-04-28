@@ -9,6 +9,7 @@ const state = {
   mode: "server",
   staticRunId: 0,
   staticMetrics: null,
+  staticReplay: null,
   staticHistory: [],
   staticFollowUpCount: 0,
   researchStages: new Map(),
@@ -65,6 +66,8 @@ const fallbackAgents = [
   { id: "sofia", name: "Sofia", title: "The Macro", short: "MACRO", color: "#f2c94c" },
   { id: "skeptic", name: "The Skeptic", title: "Assumption Hunter", short: "SKEPTIC", color: "#b58cff" }
 ];
+
+let showcaseReplayCache = null;
 
 state.agents = fallbackAgents;
 renderAgents();
@@ -427,24 +430,39 @@ function queueMessage(message, animated) {
   return state.messageQueue;
 }
 
+async function loadShowcaseReplay(ticker) {
+  try {
+    if (!showcaseReplayCache) {
+      const response = await fetch("/showcases/replays.json");
+      if (!response.ok) throw new Error(`Replay fetch failed: ${response.status}`);
+      showcaseReplayCache = await response.json();
+    }
+    return showcaseReplayCache?.replays?.[ticker] || null;
+  } catch {
+    return null;
+  }
+}
+
 async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   const runId = (state.staticRunId += 1);
   const normalizedTicker = ticker.toUpperCase().replace(/[^A-Z0-9.:-]/g, "").slice(0, 14) || "NVDA";
   const random = mulberry32(hashString(`${normalizedTicker}:${question || "demo"}`));
+  const replay = await loadShowcaseReplay(normalizedTicker);
 
   state.mode = "static";
   state.sessionId = `demo-${Date.now().toString(36)}`;
   state.complete = false;
   state.messageQueue = Promise.resolve();
-  state.staticMetrics = buildStaticMetrics(normalizedTicker, random);
+  state.staticReplay = replay;
+  state.staticMetrics = replay?.metrics || buildStaticMetrics(normalizedTicker, random);
   state.staticHistory = [];
   state.staticFollowUpCount = 0;
   state.researchStages = new Map();
-  state.researchPacket = buildStaticResearchPacket(normalizedTicker, state.staticMetrics);
+  state.researchPacket = replay?.researchPacket || buildStaticResearchPacket(normalizedTicker, state.staticMetrics);
   state.evidenceMap = new Map((state.researchPacket.evidenceItems || []).map((item) => [item.evidenceId, item]));
   state.activeRoomTab = "debate";
   state.lastError = null;
-  state.conviction = { marcus: 34, yara: -31, kenji: 0, sofia: 6, skeptic: 0 };
+  state.conviction = replay?.initialConviction || { marcus: 34, yara: -31, kenji: 0, sofia: 6, skeptic: 0 };
   state.convictionHistory = Object.fromEntries(
     Object.keys(state.conviction).map((agentId) => [agentId, [state.conviction[agentId]]])
   );
@@ -456,17 +474,19 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
   elements.begin.disabled = true;
-  elements.roomTitle.textContent = `${normalizedTicker} live debate`;
+  elements.roomTitle.textContent = `${state.researchPacket.resolvedTicker} saved replay`;
   elements.sessionChip.textContent = state.sessionId.slice(0, 8);
   setStatus(label, true);
   renderResearchSummary(state.researchPacket);
-  renderMetrics(state.staticMetrics);
+  renderMetrics(state.researchPacket);
   renderEvidence(state.researchPacket);
   renderDataPanel(state.researchPacket);
   setRoomTab("debate");
   renderConviction();
 
-  const plan = buildStaticPlan(normalizedTicker, question, state.staticMetrics, random);
+  const plan = replay?.turns?.length
+    ? replay.turns.map((turn) => replayTurnToMessage(turn))
+    : buildStaticPlan(normalizedTicker, question, state.staticMetrics, random);
 
   for (const message of plan) {
     if (runId !== state.staticRunId) return;
@@ -481,7 +501,7 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   }
 
   if (runId !== state.staticRunId) return;
-  const moderator = buildStaticModerator(normalizedTicker);
+  const moderator = replay?.moderator ? replayModeratorToMessage(replay.moderator, normalizedTicker) : buildStaticModerator(normalizedTicker);
   showTyping(moderator);
   await delay(900);
   hideTyping();
@@ -493,6 +513,41 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   elements.followupInput.disabled = false;
   elements.followupButton.disabled = false;
   elements.followupInput.focus();
+}
+
+function replayTurnToMessage(turn) {
+  const agent = fallbackAgents.find((item) => item.id === turn.agentId) || fallbackAgents[0];
+  return {
+    id: crypto.randomUUID(),
+    agentId: agent.id,
+    name: agent.name,
+    title: agent.title,
+    short: agent.short,
+    color: agent.color,
+    timestamp: timestamp(),
+    body: turn.body,
+    citedEvidenceIds: turn.citedEvidenceIds || [],
+    citations: turn.citations || [],
+    bid: turn.bid || { score: 8.6, reason: "Saved showcase replay selected this speaker." },
+    effects: turn.effects || turn.convictionDeltaByAgent || {},
+    rationaleTag: turn.rationaleTag || "saved replay evidence update"
+  };
+}
+
+function replayModeratorToMessage(moderator, ticker) {
+  return {
+    id: crypto.randomUUID(),
+    agentId: "moderator",
+    name: "Moderator",
+    title: "Desk Chair",
+    short: "MOD",
+    color: "#d9e1ea",
+    timestamp: timestamp(),
+    body: moderator.body || `Moderator wrap on ${ticker}: saved showcase replay complete.`,
+    citedEvidenceIds: moderator.citedEvidenceIds || [],
+    citations: moderator.citations || ["saved replay"],
+    effects: moderator.effects || {}
+  };
 }
 
 async function sendStaticFollowUp(message) {

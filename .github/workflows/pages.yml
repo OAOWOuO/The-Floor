@@ -1,4 +1,4 @@
-name: Deploy static demo to Pages
+name: Deploy showcase to Pages
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
         with:
           enablement: true
 
-      - name: Upload static app
+      - name: Upload showcase app
         uses: actions/upload-pages-artifact@v3
         with:
           path: public

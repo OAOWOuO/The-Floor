@@ -2,6 +2,10 @@
 
 Five analysts. One stock. No mercy.
 
+[![CI](https://github.com/OAOWOuO/The-Floor/actions/workflows/ci.yml/badge.svg)](https://github.com/OAOWOuO/The-Floor/actions/workflows/ci.yml)
+
+[Open the hosted showcase](https://the-floor.onrender.com/) · [Deploy your own on Render](https://render.com/deploy?repo=https://github.com/OAOWOuO/The-Floor)
+
 The Floor is a research-first live AI trading-room debate app. A user enters a listed ticker, the server resolves it, fetches market/profile/stat/disclosure evidence, builds a normalized research packet, asks OpenAI to synthesize analyst priors, then streams a shared multi-agent debate over SSE. The analysts debate from the same evidence packet, cite source chips, and update conviction after every turn.
 
 This is educational analysis only. It is not financial advice, not a stock recommendation system, and not a price prediction tool.
@@ -10,7 +14,7 @@ This is educational analysis only. It is not financial advice, not a stock recom
 
 - Real research mode is the default for self-hosted Live deployments.
 - The public UI is split into `Showcase` and `Live` tabs.
-- Showcase mode runs a saved replay-style experience with no API key or token spend.
+- Showcase mode runs saved replay packets for `NVDA`, `MSFT`, `TSLA`, and `AMD` with no API key or token spend.
 - Live mode is for self-hosted or private deployments with an OpenAI API key.
 - The room shows visible research stages before debate begins.
 - The center room includes a `Data` tab with market snapshot, key stats, disclosures, evidence cards, and the raw research packet.
@@ -43,6 +47,12 @@ http://localhost:3000
 
 For Render/Railway, fork the repo, set `HOST=0.0.0.0`, and configure `OPENAI_API_KEY` in the service environment. The public hosted demo does not collect visitor API keys.
 
+Fast path:
+
+1. Click [Deploy your own on Render](https://render.com/deploy?repo=https://github.com/OAOWOuO/The-Floor).
+2. Add `OPENAI_API_KEY` in the Render service environment.
+3. Deploy and verify `/api/health` reports `"liveResearch": true`.
+
 Optional environment variables:
 
 ```bash
@@ -57,7 +67,7 @@ export MAX_FOLLOWUP_BODY_BYTES="8192"
 
 ## Showcase mode
 
-The public hosted site defaults to Showcase mode. It demonstrates the live-room mechanics without spending API tokens or accepting user API keys.
+The public hosted site defaults to Showcase mode. It demonstrates the live-room mechanics with saved replay packets without spending API tokens or accepting user API keys.
 
 The legacy explicit URL still works:
 
@@ -65,7 +75,7 @@ The legacy explicit URL still works:
 http://localhost:3000/?static=1
 ```
 
-Showcase mode uses browser-side saved replay content and should not be confused with live research mode.
+Showcase mode uses `public/showcases/replays.json` and should not be confused with live research mode.
 
 ## Production posture
 
@@ -98,6 +108,8 @@ npm run smoke
 ```
 
 `npm run smoke` uses fixture market data and OpenAI mock mode so it can verify the full SSE/follow-up contract without spending tokens.
+
+GitHub Actions runs these checks on pushes and pull requests.
 
 ## Known limitations
 

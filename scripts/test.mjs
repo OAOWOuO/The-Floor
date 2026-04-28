@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { sanitizeTicker } from "../src/utils/sanitize.mjs";
 import { resolveTicker } from "../src/services/ticker-resolver.mjs";
 import { fetchMarketData } from "../src/services/market-data-service.mjs";
@@ -56,6 +57,17 @@ assert.equal(update.convictionHistory.kenji.length, 2);
 const synthesis = await synthesizeResearch({ researchPacket: packet, question: "smoke" });
 assert.ok(synthesis.company_snapshot.includes("MSFT"));
 assert.notEqual(synthesis.initial_conviction_scores.marcus, synthesis.initial_conviction_scores.yara);
+
+const replayFile = JSON.parse(await readFile("public/showcases/replays.json", "utf8"));
+for (const ticker of ["NVDA", "MSFT", "TSLA", "AMD"]) {
+  const replay = replayFile.replays?.[ticker];
+  assert.ok(replay, `Missing showcase replay for ${ticker}`);
+  assert.equal(replay.researchPacket.resolvedTicker, ticker);
+  assert.equal(replay.researchPacket.readyForDebate, true);
+  assert.ok(replay.researchPacket.evidenceItems.length >= 4);
+  assert.ok(replay.turns.length >= 7);
+  assert.ok(replay.moderator.body.includes("No recommendation"));
+}
 
 process.env.OPENAI_MOCK = "";
 delete process.env.OPENAI_API_KEY;

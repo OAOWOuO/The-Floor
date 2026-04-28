@@ -1,66 +1,116 @@
 # Deployment
 
-The Floor has two deploy paths.
+The Floor is designed to be safe as a public showcase and useful as a self-hosted live research app.
 
-## Explicit Static Preview
+## Modes
 
-Static mode is now explicit. It does not fetch market data and should not be presented as researched analysis.
+### Hosted Showcase
 
-Shareable preview:
-
-```text
-https://raw.githack.com/OAOWOuO/The-Floor/main/public/index.html?static=1
-```
-
-This version is useful for quick UI demos only. Real research mode requires the Node/SSE server and `OPENAI_API_KEY`.
-
-## GitHub Pages
-
-The repo includes a GitHub Actions workflow that deploys `public/` as a static demo whenever `main` is pushed:
+The public site can run without secrets:
 
 ```text
-https://oaowouo.github.io/The-Floor/
+https://the-floor.onrender.com/
 ```
 
-This is a static host. Add `?static=1` if you intentionally want the in-browser demo.
-
-If the first workflow run fails with `Resource not accessible by integration`, GitHub blocked the workflow from enabling Pages for the first time. Enable it once as the repo owner:
+Showcase mode loads saved replay packets from:
 
 ```text
-Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+public/showcases/replays.json
 ```
 
-Then re-run the workflow or push another commit.
+It does not spend OpenAI tokens, does not fetch live market data, and does not collect visitor API keys.
 
-## Full Server Deployment
+### Self-Hosted Live
 
-Use this when you want the real Node/SSE orchestrator online.
+Live mode is for your own deployment. Your OpenAI API key belongs only in server-side environment variables.
 
-### Render
+## Deploy To Render
 
-1. Open Render and create a new Blueprint or Web Service from `https://github.com/OAOWOuO/The-Floor`.
-2. Render can read `render.yaml`.
-3. Make sure these environment variables are set:
+Fast path:
+
+```text
+https://render.com/deploy?repo=https://github.com/OAOWOuO/The-Floor
+```
+
+Manual path:
+
+1. Fork `https://github.com/OAOWOuO/The-Floor`.
+2. In Render, create a Blueprint or Web Service from your fork.
+3. Render can read `render.yaml`.
+4. Add the required environment variables.
+5. Deploy.
+6. Visit `/api/health` and confirm `capabilities.liveResearch` is `true`.
+
+Required live env:
 
 ```text
 HOST=0.0.0.0
-FLOOR_DEBATE_MS=90000
-OPENAI_MODEL=gpt-5.4-mini
 OPENAI_API_KEY=<your OpenAI key>
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+Recommended env:
+
+```text
+FLOOR_DEBATE_MS=90000
+OPENAI_RESEARCH_MODEL=gpt-5.4-mini
+OPENAI_RESEARCH_REASONING=medium
+OPENAI_DEBATE_REASONING=low
 SEC_USER_AGENT="The Floor contact@example.com"
+MAX_FOLLOWUPS_PER_SESSION=8
+MAX_FOLLOWUP_BODY_BYTES=8192
 ```
 
-### Railway
+## Verify Deployment
 
-1. Create a new Railway project from the GitHub repo.
+Health:
+
+```bash
+curl -L https://your-service.onrender.com/api/health
+```
+
+Expected live response includes:
+
+```json
+{
+  "ok": true,
+  "capabilities": {
+    "showcaseReplay": true,
+    "liveResearch": true,
+    "acceptsBrowserApiKeys": false
+  }
+}
+```
+
+If `liveResearch` is `false`, the server does not have `OPENAI_API_KEY` configured.
+
+## Railway
+
+1. Create a Railway project from your fork.
 2. Railway can read `railway.json`.
-3. Set:
+3. Set the same environment variables as Render.
+4. Start command is `npm start`.
 
-```text
-HOST=0.0.0.0
-FLOOR_DEBATE_MS=90000
-OPENAI_MODEL=gpt-5.4-mini
-OPENAI_API_KEY=<your OpenAI key>
+## Cost And Key Safety
+
+- Do not commit API keys.
+- Do not paste API keys into the hosted public demo.
+- Use an OpenAI project key dedicated to this app.
+- Set a monthly budget limit in the OpenAI dashboard.
+- Rotate the key after public demos or judging sessions.
+- Keep hosted public demo in Showcase mode unless you add authentication, rate limits, and billing.
+
+## CI
+
+The repo includes `.github/workflows/ci.yml`.
+
+It runs:
+
+```bash
+npm ci
+npm run check
+npm run test
+npm run smoke
 ```
 
-The start command is `npm start`.
+The smoke test uses fixture market data and OpenAI mock mode, so CI does not spend tokens.
