@@ -27,7 +27,9 @@ This is educational analysis only. It is not financial advice, not a stock recom
 
 ## Data sources
 
-- `yahoo-finance2` server-side for ticker search, quotes, chart data, profile, financial data, key statistics, earnings, and Yahoo `secFilings` where available.
+- Nasdaq public quote/profile, six-month historical price, and annual financial endpoints are used as the resilient default public feed for common US equities.
+- CNBC quote statistics fill valuation fields such as trailing P/E, forward P/E, beta, EPS, price/sales, TTM revenue, EBITDA, dividend yield, ROE, profit margin, and debt/equity when available.
+- `yahoo-finance2` can be enabled by self-hosters with `THE_FLOOR_ENABLE_YAHOO_FINANCE2=1` for Yahoo quote/search/quoteSummary coverage, but the public showcase does not depend on it because Yahoo can rate-limit anonymous deployments.
 - SEC EDGAR enrichment is attempted for US-style tickers; Data tab SEC facts include fiscal period and period-end labels when available.
 - OpenAI Responses API is used for research synthesis, debate planning, moderator synthesis, and follow-up routing.
 
@@ -68,11 +70,12 @@ export MAX_FOLLOWUPS_PER_SESSION="8"
 export MAX_FOLLOWUP_BODY_BYTES="8192"
 export RATE_LIMIT_DEBATE_MAX="20"
 export RATE_LIMIT_FOLLOWUP_MAX="60"
+export THE_FLOOR_ENABLE_YAHOO_FINANCE2="1"
 ```
 
 ## Showcase mode
 
-The public hosted site defaults to Showcase mode. It fetches a current server-side Yahoo/SEC snapshot, stamps the capture time in the Data tab, and demonstrates the live-room mechanics without spending OpenAI tokens or accepting user API keys.
+The public hosted site defaults to Showcase mode. It fetches a current server-side Nasdaq/CNBC/SEC snapshot, stamps the capture time in the Data tab, and demonstrates the live-room mechanics without spending OpenAI tokens or accepting user API keys.
 
 The legacy explicit URL still works:
 
@@ -122,7 +125,8 @@ GitHub Actions runs these checks on pushes and pull requests.
 
 ## Known limitations
 
-- Yahoo and SEC coverage differs across exchanges and non-US symbols.
+- Nasdaq, CNBC, Yahoo, and SEC coverage differs across exchanges and non-US symbols.
+- Fields that an active provider does not return are rendered as `n/a` with source labeling rather than guessed.
 - SEC enrichment is best effort and not required for non-US tickers.
 - Debate quality depends on `OPENAI_API_KEY` and model availability.
 - No database or authentication yet; sessions are in-memory.

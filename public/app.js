@@ -1389,8 +1389,9 @@ function renderDataPanel(packet) {
     .filter(Boolean)
     .join(" · ");
   title.append(eyebrow, heading, meta);
-  header.append(title);
+  header.append(title, dataFreshnessBadge(packet));
   elements.dataPanel.append(header);
+  elements.dataPanel.append(dataQualityStrip(packet));
 
   const quoteGrid = document.createElement("div");
   quoteGrid.className = "data-grid";
@@ -1409,21 +1410,50 @@ function renderDataPanel(packet) {
   }
   elements.dataPanel.append(sectionBlock("Market Snapshot", quoteGrid));
 
-  const keyStats = document.createElement("div");
-  keyStats.className = "data-table";
   const stats = packet.keyStats || {};
-  for (const [label, key, digits] of [
+  const valuationRows = [
     ["Trailing P/E", "trailingPE", 1],
     ["Forward P/E", "forwardPE", 1],
     ["Beta", "beta", 2],
     ["EV/EBITDA", "enterpriseToEbitda", 1],
     ["Price/book", "priceToBook", 1],
+    ["Price/sales", "priceToSales", 1],
+    ["Forward P/S", "forwardPriceToSales", 1],
+    ["EPS TTM", "epsTtm", 2],
+    ["Forward EPS", "forwardEps", 2],
+    ["Dividend yield", "dividendYield", 2],
+    ["Dividend/share", "dividendPerShare", 2]
+  ];
+  elements.dataPanel.append(sectionBlock("Valuation & Market Ratios", dataTable(valuationRows, stats)));
+
+  const operatingRows = [
     ["Revenue growth", "revenueGrowth", 1],
+    ["Revenue TTM", "revenueTtm", 0],
+    ["Forecast sales", "forecastSales", 0],
+    ["EBITDA TTM", "ebitdaTtm", 0],
     ["Gross margin", "grossMargins", 1],
     ["Operating margin", "operatingMargins", 1],
+    ["Profit margin", "profitMargin", 1],
+    ["Return on equity", "returnOnEquity", 1],
+    ["Debt/equity", "debtToEquity", 1],
+    ["Current ratio", "currentRatio", 2],
+    ["Quick ratio", "quickRatio", 2],
+    ["Cash ratio", "cashRatio", 2],
+    ["Nasdaq fiscal period end", "nasdaqPeriodEnd", 0]
+  ];
+  elements.dataPanel.append(sectionBlock("Profitability & Balance Sheet Quality", dataTable(operatingRows, stats)));
+
+  const cashRows = [
     ["Free cash flow", "freeCashflow", 0],
     ["Operating cash flow", "operatingCashflow", 0],
+    ["Capital expenditures", "capitalExpenditures", 0],
     ["Total debt", "totalDebt", 0],
+    ["Cash & equivalents", "cashAndEquivalents", 0],
+    ["Stockholders' equity", "stockholdersEquity", 0]
+  ];
+  elements.dataPanel.append(sectionBlock("Cash Flow & Leverage", dataTable(cashRows, stats)));
+
+  const secRows = [
     ["SEC revenue", "secRevenue", 0],
     ["SEC net income", "secNetIncome", 0],
     ["SEC gross profit", "secGrossProfit", 0],
@@ -1431,16 +1461,15 @@ function renderDataPanel(packet) {
     ["SEC gross margin", "secGrossMargins", 1],
     ["SEC operating margin", "secOperatingMargins", 1],
     ["SEC assets", "secAssets", 0],
+    ["SEC equity", "secStockholdersEquity", 0],
     ["SEC cash", "secCashAndEquivalents", 0],
     ["Shares outstanding", "sharesOutstanding", 0],
     ["SEC fiscal year", "secFiscalYear", 0],
     ["SEC fiscal period", "secFiscalPeriod", 0],
     ["SEC period end", "secPeriodEnd", 0],
     ["SEC form", "secForm", 0]
-  ]) {
-    keyStats.append(dataRow(label, formatStatValue(key, stats[key], digits)));
-  }
-  elements.dataPanel.append(sectionBlock("Key Statistics", keyStats));
+  ];
+  elements.dataPanel.append(sectionBlock("SEC Statement Snapshot", dataTable(secRows, stats)));
 
   const disclosure = packet.filingOrDisclosureSummary || {};
   const disclosureBlock = document.createElement("div");
@@ -1502,6 +1531,60 @@ function sectionBlock(title, content) {
   return section;
 }
 
+function dataFreshnessBadge(packet) {
+  const badge = document.createElement("div");
+  badge.className = "data-freshness-badge";
+  const label = document.createElement("span");
+  label.textContent = packet.quoteSourceLabel ? "Source-Labeled Snapshot" : "Snapshot";
+  const time = document.createElement("strong");
+  time.textContent = formatTimestamp(packet.dataTimestamp);
+  badge.append(label, time);
+  return badge;
+}
+
+function dataQualityStrip(packet) {
+  const stats = packet.keyStats || {};
+  const strip = document.createElement("div");
+  strip.className = "data-quality-strip";
+  strip.append(
+    sourcePill("Quote", packet.quoteSourceLabel || "n/a", packet.quoteSourceLabel ? "ok" : "warn"),
+    sourcePill("Fundamentals", stats.fundamentalsSource || "n/a", stats.fundamentalsSource ? "ok" : "warn"),
+    sourcePill(
+      "Valuation",
+      stats.valuationSource || "Provider unavailable",
+      stats.valuationSource ? "ok" : "warn"
+    ),
+    sourcePill("Filings", packet.filingOrDisclosureSummary?.available ? "SEC EDGAR" : "Unavailable", packet.filingOrDisclosureSummary?.available ? "ok" : "warn")
+  );
+  if (stats.valuationUnavailableReason) {
+    const note = document.createElement("p");
+    note.className = "data-quality-note";
+    note.textContent = stats.valuationUnavailableReason;
+    strip.append(note);
+  }
+  return strip;
+}
+
+function sourcePill(label, value, tone = "ok") {
+  const pill = document.createElement("div");
+  pill.className = `data-source-pill ${tone}`;
+  const span = document.createElement("span");
+  span.textContent = label;
+  const strong = document.createElement("strong");
+  strong.textContent = value || "n/a";
+  pill.append(span, strong);
+  return pill;
+}
+
+function dataTable(rows, stats) {
+  const table = document.createElement("div");
+  table.className = "data-table";
+  for (const [label, key, digits] of rows) {
+    table.append(dataRow(label, formatStatValue(key, stats[key], digits)));
+  }
+  return table;
+}
+
 function dataMetric(label, value) {
   const cell = document.createElement("div");
   cell.className = "data-metric";
@@ -1520,6 +1603,10 @@ function dataRow(label, value) {
   left.textContent = label;
   const right = document.createElement("strong");
   right.textContent = value == null || value === "" ? "n/a" : String(value);
+  if (right.textContent === "n/a") {
+    row.classList.add("missing");
+    right.title = "Provider did not return this metric in the current snapshot.";
+  }
   row.append(left, right);
   return row;
 }
@@ -1530,13 +1617,20 @@ function formatStatValue(key, value, digits = 1) {
     key === "revenueGrowth" ||
     key === "grossMargins" ||
     key === "operatingMargins" ||
+    key === "profitMargin" ||
+    key === "returnOnEquity" ||
+    key === "debtToEquity" ||
+    key === "dividendYield" ||
     key === "secGrossMargins" ||
     key === "secOperatingMargins"
   ) {
     return formatPercent(value);
   }
-  if (["secFiscalPeriod", "secPeriodEnd", "secForm"].includes(key)) {
+  if (["secFiscalPeriod", "secPeriodEnd", "secForm", "nasdaqPeriodEnd"].includes(key)) {
     return value || "n/a";
+  }
+  if (["currentRatio", "quickRatio", "cashRatio"].includes(key)) {
+    return formatRatio(value, digits);
   }
   if (key === "secFiscalYear") {
     return formatValue(value, 0);
@@ -1544,7 +1638,19 @@ function formatStatValue(key, value, digits = 1) {
   if (key === "sharesOutstanding") {
     return formatMarketCap(value);
   }
-  if (key.endsWith("flow") || key === "totalDebt" || key.startsWith("sec")) {
+  if (
+    key.endsWith("flow") ||
+    [
+      "capitalExpenditures",
+      "totalDebt",
+      "cashAndEquivalents",
+      "stockholdersEquity",
+      "revenueTtm",
+      "forecastSales",
+      "ebitdaTtm"
+    ].includes(key) ||
+    key.startsWith("sec")
+  ) {
     return formatMarketCap(value);
   }
   return formatValue(value, digits);
@@ -1717,6 +1823,13 @@ function formatPercent(value) {
   if (!Number.isFinite(number)) return "n/a";
   const scaled = Math.abs(number) <= 2 ? number * 100 : number;
   return `${scaled.toFixed(1)}%`;
+}
+
+function formatRatio(value, digits = 2) {
+  if (isMissingNumber(value)) return "n/a";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "n/a";
+  return `${number.toFixed(digits)}x`;
 }
 
 function formatTimestamp(value) {

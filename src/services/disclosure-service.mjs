@@ -141,6 +141,11 @@ async function fetchCompanyFacts(cik, userAgent) {
   const operatingIncome = latestAnnualFactFrom([gaap.OperatingIncomeLoss]);
   const operatingCashflow = latestAnnualFactFrom([gaap.NetCashProvidedByUsedInOperatingActivities]);
   const assets = latestInstantFactFrom([gaap.Assets]);
+  const stockholdersEquity = latestInstantFactFrom([
+    gaap.StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest,
+    gaap.StockholdersEquityAttributableToParent,
+    gaap.StockholdersEquity
+  ]);
   const cashAndEquivalents = latestInstantFactFrom([
     gaap.CashAndCashEquivalentsAtCarryingValue,
     gaap.CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents
@@ -174,6 +179,7 @@ async function fetchCompanyFacts(cik, userAgent) {
     grossMargins: ratio(grossProfit?.val, revenue?.val),
     operatingMargins: ratio(operatingIncome?.val, revenue?.val),
     assets: assets?.val ?? null,
+    stockholdersEquity: stockholdersEquity?.val ?? null,
     cashAndEquivalents: cashAndEquivalents?.val ?? null,
     totalDebt,
     sharesOutstanding: sharesOutstanding?.val ?? null
@@ -264,6 +270,7 @@ function fixtureDisclosure() {
       netIncome: 88000000000,
       operatingCashflow: 118500000000,
       assets: 512000000000,
+      stockholdersEquity: 268000000000,
       cashAndEquivalents: 78000000000
     },
     warnings: []

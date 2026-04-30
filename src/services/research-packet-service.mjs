@@ -4,13 +4,17 @@ import { round, toNumber } from "../utils/math.mjs";
 export function buildResearchPacket({ resolution, marketData, disclosureData }) {
   const quote = marketData?.quote || {};
   const summary = marketData?.summary || {};
-  const profile = firstObject(summary.assetProfile, summary.summaryProfile, marketData?.fallbackProfile) || {};
+  const yahooProfile = firstObject(summary.assetProfile, summary.summaryProfile);
+  const profile = firstObject(yahooProfile, marketData?.fallbackProfile) || {};
+  const profileSourceLabel = yahooProfile ? "Yahoo Finance company profile" : "Nasdaq company profile";
   const price = summary.price || {};
   const fallbackQuote = marketData?.fallbackQuote || {};
   const chartMeta = marketData?.chart?.meta || {};
   const financialData = summary.financialData || {};
   const keyStatistics = summary.defaultKeyStatistics || {};
   const summaryDetail = summary.summaryDetail || {};
+  const cnbcStats = marketData?.cnbcStats || {};
+  const nasdaqFinancials = marketData?.nasdaqFinancials || {};
   const chartContext = buildRecentPriceContext(marketData?.chart);
   const secFacts = disclosureData?.companyFacts || {};
   const evidenceItems = [];
@@ -103,11 +107,11 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   if (businessSummary) {
     addEvidence(
       "company_profile",
-      "Yahoo Finance company profile",
+      profileSourceLabel,
       `${displayName} operates in ${profile.sector || "an unspecified sector"} / ${profile.industry || "an unspecified industry"}: ${trimSentence(businessSummary, 360)}`,
       8,
       ["marcus", "yara", "sofia", "lucas", "mei"],
-      yahooProfileUrl(resolution.resolvedTicker)
+      yahooProfile ? yahooProfileUrl(resolution.resolvedTicker) : marketData?.quoteSourceUrl || yahooProfileUrl(resolution.resolvedTicker)
     );
   }
 
@@ -115,21 +119,58 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   const yahooGrossMargins = toNumber(financialData.grossMargins);
   const yahooOperatingMargins = toNumber(financialData.operatingMargins);
   const yahooFcf = firstNumber(financialData.freeCashflow, financialData.freeCashFlow);
-  const revenueGrowth = yahooRevenueGrowth;
-  const grossMargins = firstNumber(yahooGrossMargins, secFacts.grossMargins);
-  const operatingMargins = firstNumber(yahooOperatingMargins, secFacts.operatingMargins);
-  const fcf = yahooFcf;
-  const opCash = firstNumber(financialData.operatingCashflow, financialData.operatingCashFlow, secFacts.operatingCashflow);
+  const cnbcGrossMargins = firstNumber(cnbcStats.grossMargins);
+  const cnbcProfitMargin = firstNumber(cnbcStats.profitMargin);
+  const cnbcReturnOnEquity = firstNumber(cnbcStats.returnOnEquity);
+  const nasdaqRevenueGrowth = firstNumber(nasdaqFinancials.revenueGrowth);
+  const nasdaqGrossMargins = firstNumber(nasdaqFinancials.grossMargins);
+  const nasdaqOperatingMargins = firstNumber(nasdaqFinancials.operatingMargins);
+  const nasdaqFcf = firstNumber(nasdaqFinancials.freeCashflow);
+  const revenueGrowth = firstNumber(yahooRevenueGrowth, nasdaqRevenueGrowth);
+  const grossMargins = firstNumber(yahooGrossMargins, nasdaqGrossMargins, cnbcGrossMargins, secFacts.grossMargins);
+  const operatingMargins = firstNumber(yahooOperatingMargins, nasdaqOperatingMargins, secFacts.operatingMargins);
+  const fcf = firstNumber(yahooFcf, nasdaqFcf);
+  const opCash = firstNumber(
+    financialData.operatingCashflow,
+    financialData.operatingCashFlow,
+    nasdaqFinancials.operatingCashflow,
+    secFacts.operatingCashflow
+  );
+  const capex = firstNumber(nasdaqFinancials.capitalExpenditures);
+  const totalDebt = firstNumber(financialData.totalDebt, nasdaqFinancials.totalDebt, secFacts.totalDebt);
+  const cashAndEquivalents = firstNumber(nasdaqFinancials.cashAndEquivalents, secFacts.cashAndEquivalents);
+  const stockholdersEquity = firstNumber(secFacts.stockholdersEquity);
   const secRevenue = firstNumber(secFacts.revenue);
   const secNetIncome = firstNumber(secFacts.netIncome);
   const secPeriodLabel = secFactPeriodLabel(secFacts);
-  if ([revenueGrowth, grossMargins, operatingMargins, fcf, opCash, secRevenue, secNetIncome].some((value) => value !== null)) {
+  if ([revenueGrowth, grossMargins, operatingMargins, fcf, opCash, totalDebt, secRevenue, secNetIncome].some((value) => value !== null)) {
     const hasYahooFundamentals = [yahooRevenueGrowth, yahooGrossMargins, yahooOperatingMargins, yahooFcf].some(
       (value) => value !== null
     );
+    const hasNasdaqFundamentals = [
+      nasdaqRevenueGrowth,
+      nasdaqGrossMargins,
+      nasdaqOperatingMargins,
+      nasdaqFcf,
+      nasdaqFinancials.operatingCashflow,
+      nasdaqFinancials.totalDebt
+    ].some((value) => firstNumber(value) !== null);
+    const hasCnbcFundamentals = [
+      cnbcStats.revenueTtm,
+      cnbcStats.ebitdaTtm,
+      cnbcStats.grossMargins,
+      cnbcStats.profitMargin
+    ].some((value) => firstNumber(value) !== null);
+    const fundamentalsSourceLabel = hasYahooFundamentals
+      ? "Yahoo Finance financialData"
+      : hasNasdaqFundamentals
+        ? "Nasdaq annual financials"
+        : hasCnbcFundamentals
+          ? "CNBC quote statistics"
+        : "SEC EDGAR companyfacts";
     addEvidence(
       "fundamentals",
-      hasYahooFundamentals ? "Yahoo Finance financialData" : "SEC EDGAR companyfacts",
+      fundamentalsSourceLabel,
       [
         revenueGrowth !== null ? `revenue growth ${formatPct(revenueGrowth)}` : null,
         grossMargins !== null ? `gross margin ${formatPct(grossMargins)}` : null,
@@ -137,46 +178,84 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
         secRevenue !== null ? `latest SEC revenue ${formatLargeNumber(secRevenue)}${secPeriodLabel}` : null,
         secNetIncome !== null ? `latest SEC net income ${formatLargeNumber(secNetIncome)}${secPeriodLabel}` : null,
         fcf !== null ? `free cash flow ${formatLargeNumber(fcf)}` : null,
-        opCash !== null ? `operating cash flow ${formatLargeNumber(opCash)}` : null
+        opCash !== null ? `operating cash flow ${formatLargeNumber(opCash)}` : null,
+        totalDebt !== null ? `total debt ${formatLargeNumber(totalDebt)}` : null
       ]
         .filter(Boolean)
         .join("; ") + ".",
       8,
       ["marcus", "yara", "kenji", "priya", "omar"],
-      hasYahooFundamentals ? yahooAnalysisUrl(resolution.resolvedTicker) : secFacts.sourceUrl
+      hasYahooFundamentals
+        ? yahooAnalysisUrl(resolution.resolvedTicker)
+        : hasNasdaqFundamentals
+          ? nasdaqFinancials.sourceUrl
+          : hasCnbcFundamentals
+            ? cnbcStats.sourceUrl
+          : secFacts.sourceUrl
     );
   }
 
-  const trailingPe = firstNumber(keyStatistics.trailingPE, quote.trailingPE);
-  const forwardPe = firstNumber(keyStatistics.forwardPE, quote.forwardPE);
-  const beta = firstNumber(keyStatistics.beta, quote.beta);
-  const evToEbitda = firstNumber(keyStatistics.enterpriseToEbitda);
-  if ([trailingPe, forwardPe, beta, evToEbitda].some((value) => value !== null)) {
+  const trailingPe = firstNumber(keyStatistics.trailingPE, quote.trailingPE, cnbcStats.trailingPE);
+  const forwardPe = firstNumber(keyStatistics.forwardPE, quote.forwardPE, cnbcStats.forwardPE);
+  const beta = firstNumber(keyStatistics.beta, quote.beta, cnbcStats.beta);
+  const ebitdaTtm = firstNumber(cnbcStats.ebitdaTtm);
+  const derivedEvToEbitda =
+    marketCap !== null && ebitdaTtm !== null && ebitdaTtm !== 0
+      ? (marketCap + (totalDebt || 0) - (cashAndEquivalents || 0)) / ebitdaTtm
+      : null;
+  const evToEbitda = firstNumber(keyStatistics.enterpriseToEbitda, derivedEvToEbitda);
+  const derivedPriceToBook =
+    marketCap !== null && stockholdersEquity !== null && stockholdersEquity !== 0
+      ? marketCap / stockholdersEquity
+      : null;
+  const priceToBook = firstNumber(keyStatistics.priceToBook, derivedPriceToBook);
+  const priceToSales = firstNumber(cnbcStats.priceToSales);
+  const hasYahooValuation = [keyStatistics.trailingPE, quote.trailingPE, keyStatistics.forwardPE, quote.forwardPE, keyStatistics.beta, quote.beta, keyStatistics.enterpriseToEbitda, keyStatistics.priceToBook].some(
+    (value) => firstNumber(value) !== null
+  );
+  const hasCnbcValuation = [cnbcStats.trailingPE, cnbcStats.forwardPE, cnbcStats.beta, cnbcStats.priceToSales].some(
+    (value) => firstNumber(value) !== null
+  );
+  const hasDerivedValuation = [derivedEvToEbitda, derivedPriceToBook].some((value) => value !== null);
+  const valuationSourceLabel = hasYahooValuation
+    ? "Yahoo Finance key statistics"
+    : hasCnbcValuation
+      ? "CNBC quote statistics"
+      : hasDerivedValuation
+        ? "Derived from market cap and filings"
+        : null;
+  if ([trailingPe, forwardPe, beta, evToEbitda, priceToBook, priceToSales].some((value) => value !== null)) {
     addEvidence(
       "key_statistics",
-      "Yahoo Finance key statistics",
+      valuationSourceLabel || "Valuation statistics",
       [
         trailingPe !== null ? `trailing P/E ${round(trailingPe, 1)}` : null,
         forwardPe !== null ? `forward P/E ${round(forwardPe, 1)}` : null,
         beta !== null ? `beta ${round(beta, 2)}` : null,
-        evToEbitda !== null ? `EV/EBITDA ${round(evToEbitda, 1)}` : null
+        evToEbitda !== null ? `EV/EBITDA ${round(evToEbitda, 1)}` : null,
+        priceToBook !== null ? `price/book ${round(priceToBook, 1)}` : null,
+        priceToSales !== null ? `price/sales ${round(priceToSales, 1)}` : null
       ]
         .filter(Boolean)
         .join("; ") + ".",
       7,
       ["yara", "kenji", "marcus", "priya", "omar"],
-      yahooKeyStatsUrl(resolution.resolvedTicker)
+      hasYahooValuation
+        ? yahooKeyStatsUrl(resolution.resolvedTicker)
+        : hasCnbcValuation
+          ? cnbcStats.sourceUrl
+          : secFacts.sourceUrl || marketData?.quoteSourceUrl
     );
   }
 
   if (chartContext.observations.length) {
     addEvidence(
       "price_history",
-      "Yahoo Finance six-month chart",
+      marketData?.chartSourceLabel || "Six-month price history",
       chartContext.observations.join(" "),
       6,
       ["kenji", "sofia", "omar"],
-      yahooChartUrl(resolution.resolvedTicker)
+      marketData?.chartSourceUrl || yahooChartUrl(resolution.resolvedTicker)
     );
   }
 
@@ -198,27 +277,67 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   }
 
   const keyStats = {
+    fundamentalsSource:
+      [yahooRevenueGrowth, yahooGrossMargins, yahooOperatingMargins, yahooFcf].some((value) => value !== null)
+        ? "Yahoo Finance financialData"
+        : [
+              nasdaqRevenueGrowth,
+              nasdaqGrossMargins,
+              nasdaqOperatingMargins,
+              nasdaqFcf,
+              nasdaqFinancials.operatingCashflow,
+              nasdaqFinancials.totalDebt
+            ].some((value) => firstNumber(value) !== null)
+          ? "Nasdaq annual financials"
+          : [cnbcStats.revenueTtm, cnbcStats.ebitdaTtm, cnbcStats.grossMargins].some(
+                (value) => firstNumber(value) !== null
+              )
+            ? "CNBC quote statistics"
+            : "SEC EDGAR companyfacts",
+    valuationSource: valuationSourceLabel,
+    valuationUnavailableReason: valuationSourceLabel
+      ? null
+      : "Valuation statistics were unavailable from the active public providers in this run.",
     trailingPE: trailingPe,
     forwardPE: forwardPe,
     beta,
     enterpriseToEbitda: evToEbitda,
-    priceToBook: firstNumber(keyStatistics.priceToBook),
-    dividendYield: firstNumber(summaryDetail.dividendYield),
+    priceToBook,
+    priceToSales,
+    forwardPriceToSales: firstNumber(cnbcStats.forwardPriceToSales),
+    epsTtm: firstNumber(cnbcStats.epsTtm),
+    forwardEps: firstNumber(cnbcStats.forwardEps),
+    revenueTtm: firstNumber(cnbcStats.revenueTtm),
+    forecastSales: firstNumber(cnbcStats.forecastSales),
+    ebitdaTtm,
+    dividendYield: firstNumber(summaryDetail.dividendYield, cnbcStats.dividendYield),
+    dividendPerShare: firstNumber(cnbcStats.dividendPerShare),
     revenueGrowth,
     grossMargins,
     operatingMargins,
+    profitMargin: firstNumber(cnbcProfitMargin, nasdaqFinancials.profitMargin),
+    returnOnEquity: firstNumber(cnbcReturnOnEquity, nasdaqFinancials.afterTaxRoe),
+    debtToEquity: firstNumber(cnbcStats.debtToEquity),
     freeCashflow: fcf,
+    capitalExpenditures: capex,
     operatingCashflow: opCash,
-    totalDebt: firstNumber(financialData.totalDebt, secFacts.totalDebt),
+    totalDebt,
+    cashAndEquivalents,
+    stockholdersEquity,
+    currentRatio: firstNumber(nasdaqFinancials.currentRatio),
+    quickRatio: firstNumber(nasdaqFinancials.quickRatio),
+    cashRatio: firstNumber(nasdaqFinancials.cashRatio),
+    nasdaqPeriodEnd: nasdaqFinancials.periodEnd || null,
     secRevenue,
     secNetIncome,
     secGrossProfit: firstNumber(secFacts.grossProfit),
     secOperatingIncome: firstNumber(secFacts.operatingIncome),
     secAssets: firstNumber(secFacts.assets),
+    secStockholdersEquity: firstNumber(secFacts.stockholdersEquity),
     secCashAndEquivalents: firstNumber(secFacts.cashAndEquivalents),
     secGrossMargins: firstNumber(secFacts.grossMargins),
     secOperatingMargins: firstNumber(secFacts.operatingMargins),
-    sharesOutstanding: secSharesOutstanding,
+    sharesOutstanding: firstNumber(secSharesOutstanding, cnbcStats.sharesOutstanding),
     secFiscalYear: secFacts.fiscalYear || null,
     secFiscalPeriod: secFacts.fiscalPeriod || null,
     secPeriodEnd: secFacts.periodEnd || null,

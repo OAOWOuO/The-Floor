@@ -1,8 +1,8 @@
-import OpenAI from "openai";
-import { zodTextFormat } from "openai/helpers/zod";
 import { AppError } from "../utils/errors.mjs";
 
 let client = null;
+let openAiModulePromise = null;
+let zodHelperPromise = null;
 
 export function requireOpenAIClient() {
   if (process.env.OPENAI_MOCK === "1") return null;
@@ -15,7 +15,6 @@ export function requireOpenAIClient() {
     );
   }
 
-  client ||= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   return client;
 }
 
@@ -28,7 +27,7 @@ export async function createJsonResponse({
   schema = null,
   schemaName = "structured_output"
 }) {
-  const openai = requireOpenAIClient();
+  const openai = await getOpenAIClient();
   const body = {
     model,
     store: false,
@@ -44,6 +43,7 @@ export async function createJsonResponse({
   };
 
   if (schema) {
+    const { zodTextFormat } = await getZodHelpers();
     body.text = { format: zodTextFormat(schema, schemaName) };
     const response = await openai.responses.parse(body);
     if (response.output_parsed) return response.output_parsed;
@@ -52,6 +52,21 @@ export async function createJsonResponse({
 
   const response = await openai.responses.create(body);
   return parseJsonFromText(extractOutputText(response));
+}
+
+async function getOpenAIClient() {
+  requireOpenAIClient();
+  if (!client) {
+    openAiModulePromise ||= import("openai");
+    const { default: OpenAI } = await openAiModulePromise;
+    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return client;
+}
+
+async function getZodHelpers() {
+  zodHelperPromise ||= import("openai/helpers/zod");
+  return zodHelperPromise;
 }
 
 export function extractOutputText(data) {

@@ -15,15 +15,29 @@ export async function resolveTicker(input) {
     return fixtureResolution(query);
   }
 
+  if (isDirectTicker(query) && process.env.THE_FLOOR_YAHOO_SEARCH === "1") {
+    return await resolveWithYahooSearch(query);
+  }
+
+  if (isDirectTicker(query)) {
+    return directResolution(query);
+  }
+
+  return await resolveWithYahooSearch(query);
+}
+
+async function resolveWithYahooSearch(query) {
   let result;
   try {
-    const yahoo = await getYahooFinance();
     result = await withTimeout(
-      yahoo.search(query, {
-        quotesCount: 8,
-        newsCount: 0,
-        enableFuzzyQuery: true
-      }),
+      (async () => {
+        const yahoo = await getYahooFinance();
+        return yahoo.search(query, {
+          quotesCount: 8,
+          newsCount: 0,
+          enableFuzzyQuery: true
+        });
+      })(),
       resolverTimeoutMs,
       `Ticker resolution timed out for ${query}.`
     );
@@ -55,6 +69,18 @@ export async function resolveTicker(input) {
   };
 }
 
+function directResolution(query) {
+  return {
+    inputTicker: query,
+    resolvedTicker: query,
+    displayName: query,
+    exchange: null,
+    quoteType: "EQUITY",
+    currency: null,
+    likelyMatches: [{ symbol: query, name: query, exchange: null, quoteType: "EQUITY" }]
+  };
+}
+
 function providerFallbackResolution(query, warning) {
   return {
     inputTicker: query,
@@ -66,6 +92,10 @@ function providerFallbackResolution(query, warning) {
     likelyMatches: [{ symbol: query, name: query, exchange: null, quoteType: "EQUITY" }],
     researchWarnings: [`Ticker search provider unavailable: ${warning}`]
   };
+}
+
+function isDirectTicker(query) {
+  return /^[A-Z0-9][A-Z0-9.:-]{0,13}$/.test(query);
 }
 
 async function getYahooFinance() {
@@ -130,10 +160,10 @@ function fixtureResolution(query) {
 }
 
 function withTimeout(promise, ms, message) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new AppError("provider_timeout", message, 504)), ms);
-    })
-  ]);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new AppError("provider_timeout", message, 504)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }

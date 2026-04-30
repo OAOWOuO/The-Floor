@@ -4,6 +4,7 @@ await runServerSmoke({
   name: "research flow",
   env: {
     PORT: "0",
+    HOST: "0.0.0.0",
     FLOOR_DEBATE_MS: "900",
     THE_FLOOR_FIXTURE_MODE: "1",
     OPENAI_MOCK: "1",
@@ -17,6 +18,7 @@ await runServerSmoke({
   name: "missing API key failure",
   env: {
     PORT: "0",
+    HOST: "0.0.0.0",
     FLOOR_DEBATE_MS: "500",
     THE_FLOOR_FIXTURE_MODE: "1",
     OPENAI_MOCK: "",

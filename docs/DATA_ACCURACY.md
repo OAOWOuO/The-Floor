@@ -32,8 +32,11 @@ Quotes may be delayed by the upstream provider. If the provider cannot return a 
 Provider behavior must be explicit:
 
 - Yahoo Finance quote and quoteSummary are preferred when available.
-- If Yahoo quote is unavailable or rate-limited, Nasdaq quote/profile data is the first fallback for common US equities and must be labeled as such.
-- If Nasdaq is unavailable, Stooq delayed quote may be used and must be labeled as such.
+- The public showcase defaults to resilient public fallbacks; set `THE_FLOOR_ENABLE_YAHOO_FINANCE2=1` when self-hosting if you want to attempt the `yahoo-finance2` provider first.
+- Nasdaq quote/profile data is the default public feed for common US equities when Yahoo is disabled or unavailable and must be labeled with its source.
+- CNBC quote statistics may fill P/E, forward P/E, beta, EPS, price/sales, TTM revenue, EBITDA, dividend yield, ROE, profit margin, and debt/equity when Yahoo quoteSummary is unavailable.
+- Nasdaq annual financials may fill revenue growth, margins, free cash flow, leverage, and liquidity ratios when Yahoo fundamentals are unavailable.
+- If Nasdaq is unavailable, Stooq delayed quote and price-history data may be used and must be labeled as such.
 - SEC companyfacts can enrich annual financial statement values and shares outstanding, but the UI must distinguish SEC fields from Yahoo fields.
 - `null`, `undefined`, and empty provider fields must render as `n/a`, never as `0`.
 - Market cap may be derived only when a current quote and SEC shares outstanding are both available; the warning list must say it was derived.
