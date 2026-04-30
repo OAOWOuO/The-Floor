@@ -1,6 +1,7 @@
 import { AppError } from "../utils/errors.mjs";
 
 let yahooFinance;
+const marketDataTimeoutMs = Number(process.env.MARKET_DATA_TIMEOUT_MS || 7000);
 
 const summaryModules = [
   "price",
@@ -29,6 +30,9 @@ export async function fetchMarketData(resolution) {
 
   if (quoteResult.warning) warnings.push(quoteResult.warning);
   if (!quoteResult.quote && fallbackQuote.quote && fallbackQuote.warning) warnings.push(fallbackQuote.warning);
+  if (!Object.keys(summary || {}).length) {
+    warnings.push("Yahoo Finance quoteSummary unavailable; profile, valuation, and key statistics may be incomplete.");
+  }
 
   if (!hasUsableQuote(quoteResult.quote, summary, chart, fallbackQuote.quote)) {
     throw new AppError("market_data_provider_failed", `Could not fetch current quote for ${symbol}.`, 502, {
@@ -54,7 +58,10 @@ export async function fetchMarketData(resolution) {
 async function fetchQuote(symbol) {
   try {
     const yahoo = await getYahooFinance();
-    return { quote: await yahoo.quote(symbol), warning: null };
+    return {
+      quote: await withTimeout(yahoo.quote(symbol), marketDataTimeoutMs, `Yahoo Finance quote timed out for ${symbol}.`),
+      warning: null
+    };
   } catch (error) {
     return {
       quote: null,
@@ -66,13 +73,21 @@ async function fetchQuote(symbol) {
 async function fetchQuoteSummary(symbol) {
   try {
     const yahoo = await getYahooFinance();
-    return await yahoo.quoteSummary(symbol, { modules: summaryModules });
+    return await withTimeout(
+      yahoo.quoteSummary(symbol, { modules: summaryModules }),
+      marketDataTimeoutMs,
+      `Yahoo Finance quoteSummary timed out for ${symbol}.`
+    );
   } catch {
     try {
       const yahoo = await getYahooFinance();
-      return await yahoo.quoteSummary(symbol, {
-        modules: ["price", "assetProfile", "summaryProfile", "financialData", "defaultKeyStatistics", "summaryDetail"]
-      });
+      return await withTimeout(
+        yahoo.quoteSummary(symbol, {
+          modules: ["price", "assetProfile", "summaryProfile", "financialData", "defaultKeyStatistics", "summaryDetail"]
+        }),
+        marketDataTimeoutMs,
+        `Yahoo Finance reduced quoteSummary timed out for ${symbol}.`
+      );
     } catch {
       return {};
     }
@@ -86,9 +101,9 @@ function hasUsableQuote(quote, summary, chart, fallbackQuote) {
       quote?.preMarketPrice ||
       summary?.price?.regularMarketPrice ||
       summary?.summaryDetail?.previousClose ||
+      fallbackQuote?.regularMarketPrice ||
       chart?.meta?.regularMarketPrice ||
-      chart?.meta?.previousClose ||
-      fallbackQuote?.regularMarketPrice
+      chart?.meta?.previousClose
   );
 }
 
@@ -99,11 +114,11 @@ function getQuoteSource(symbol, quote, summary, chart, fallbackQuote) {
   if (summary?.price?.regularMarketPrice || summary?.summaryDetail?.previousClose) {
     return { label: "Yahoo Finance quoteSummary", url: yahooQuoteUrl(symbol) };
   }
-  if (chart?.meta?.regularMarketPrice || chart?.meta?.previousClose) {
-    return { label: "Yahoo Finance chart metadata", url: yahooChartUrl(symbol) };
-  }
   if (fallbackQuote?.regularMarketPrice) {
     return { label: "Stooq delayed quote fallback", url: fallbackQuote.sourceUrl || null };
+  }
+  if (chart?.meta?.regularMarketPrice || chart?.meta?.previousClose) {
+    return { label: "Yahoo Finance chart metadata", url: yahooChartUrl(symbol) };
   }
   return null;
 }
@@ -115,11 +130,15 @@ async function fetchChart(symbol) {
 
   try {
     const yahoo = await getYahooFinance();
-    return await yahoo.chart(symbol, {
-      period1,
-      period2,
-      interval: "1d"
-    });
+    return await withTimeout(
+      yahoo.chart(symbol, {
+        period1,
+        period2,
+        interval: "1d"
+      }),
+      marketDataTimeoutMs,
+      `Yahoo Finance chart timed out for ${symbol}.`
+    );
   } catch {
     return null;
   }
@@ -138,8 +157,11 @@ async function fetchStooqQuote(symbol) {
   if (!stooqSymbol) return { quote: null, warning: null };
 
   try {
-    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcv&h&e=csv`;
-    const response = await fetch(url, { headers: { "User-Agent": "The Floor research app" } });
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol)}&f=sd2t2ohlcvp&h&e=csv`;
+    const response = await fetch(url, {
+      headers: { "User-Agent": "The Floor research app" },
+      signal: AbortSignal.timeout(marketDataTimeoutMs)
+    });
     if (!response.ok) throw new Error(`Stooq HTTP ${response.status}`);
     const text = await response.text();
     const rows = text.trim().split(/\r?\n/);
@@ -149,13 +171,24 @@ async function fetchStooqQuote(symbol) {
     const record = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
     const close = Number(record.Close);
     if (!Number.isFinite(close) || close <= 0) throw new Error("Stooq returned no close price.");
+    const previousClose = Number(record.Prev);
     const open = Number(record.Open);
+    const high = Number(record.High);
+    const low = Number(record.Low);
+    const volume = Number(record.Volume);
+    const asOf = stooqTimestamp(record.Date, record.Time);
     return {
       quote: {
         regularMarketPrice: close,
-        regularMarketChange: Number.isFinite(open) ? close - open : null,
+        regularMarketPreviousClose: Number.isFinite(previousClose) ? previousClose : null,
+        regularMarketChange: Number.isFinite(previousClose) ? close - previousClose : null,
+        regularMarketOpen: Number.isFinite(open) ? open : null,
+        regularMarketDayHigh: Number.isFinite(high) ? high : null,
+        regularMarketDayLow: Number.isFinite(low) ? low : null,
+        regularMarketVolume: Number.isFinite(volume) ? volume : null,
         currency: "USD",
         marketState: "DELAYED",
+        regularMarketTime: asOf,
         sourceUrl: `https://stooq.com/q/?s=${encodeURIComponent(stooqSymbol)}`
       },
       warning: `Yahoo Finance quote path was unavailable; used Stooq delayed quote for ${symbol}.`
@@ -176,12 +209,27 @@ function toStooqSymbol(symbol) {
   return `${normalized}.us`;
 }
 
+function stooqTimestamp(date, time) {
+  if (!date || !time) return null;
+  const value = new Date(`${date}T${time}Z`);
+  return Number.isNaN(value.getTime()) ? null : value.toISOString();
+}
+
 function yahooQuoteUrl(symbol) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
 }
 
 function yahooChartUrl(symbol) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}/chart`;
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms);
+    })
+  ]);
 }
 
 function fixtureMarketData(resolution) {

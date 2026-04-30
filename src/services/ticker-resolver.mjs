@@ -3,6 +3,7 @@ import { sanitizeTicker } from "../utils/sanitize.mjs";
 
 const equityTypes = new Set(["EQUITY", "ETF", "MUTUALFUND"]);
 let yahooFinance;
+const resolverTimeoutMs = Number(process.env.MARKET_DATA_TIMEOUT_MS || 7000);
 
 export async function resolveTicker(input) {
   const query = sanitizeTicker(input);
@@ -17,18 +18,17 @@ export async function resolveTicker(input) {
   let result;
   try {
     const yahoo = await getYahooFinance();
-    result = await yahoo.search(query, {
-      quotesCount: 8,
-      newsCount: 0,
-      enableFuzzyQuery: true
-    });
-  } catch (error) {
-    throw new AppError(
-      "ticker_resolution_failed",
-      "Ticker resolution failed while contacting the market data provider.",
-      502,
-      { reason: error.message }
+    result = await withTimeout(
+      yahoo.search(query, {
+        quotesCount: 8,
+        newsCount: 0,
+        enableFuzzyQuery: true
+      }),
+      resolverTimeoutMs,
+      `Ticker resolution timed out for ${query}.`
     );
+  } catch (error) {
+    return providerFallbackResolution(query, error.message);
   }
 
   const likelyMatches = normalizeMatches(result?.quotes || []);
@@ -52,6 +52,19 @@ export async function resolveTicker(input) {
     quoteType: selected.quoteType || null,
     currency: selected.currency || null,
     likelyMatches
+  };
+}
+
+function providerFallbackResolution(query, warning) {
+  return {
+    inputTicker: query,
+    resolvedTicker: query,
+    displayName: query,
+    exchange: null,
+    quoteType: "EQUITY",
+    currency: null,
+    likelyMatches: [{ symbol: query, name: query, exchange: null, quoteType: "EQUITY" }],
+    researchWarnings: [`Ticker search provider unavailable: ${warning}`]
   };
 }
 
@@ -114,4 +127,13 @@ function fixtureResolution(query) {
       likelyMatches: [{ symbol: upper, name: `${upper} Fixture Corp.`, exchange: "NMS", quoteType: "EQUITY" }]
     }
   );
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new AppError("provider_timeout", message, 504)), ms);
+    })
+  ]);
 }

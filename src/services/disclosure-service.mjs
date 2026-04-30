@@ -27,6 +27,8 @@ export async function fetchDisclosureData(resolution, marketData) {
   return sec;
 }
 
+const secTimeoutMs = Number(process.env.SEC_TIMEOUT_MS || process.env.MARKET_DATA_TIMEOUT_MS || 7000);
+
 function normalizeYahooFilings(filings) {
   return filings
     .filter((filing) => filing?.type || filing?.form)
@@ -55,7 +57,8 @@ async function fetchSecFilings(resolution) {
 
   const userAgent = process.env.SEC_USER_AGENT || "The Floor research app contact@example.com";
   const tickersResponse = await fetch("https://www.sec.gov/files/company_tickers.json", {
-    headers: { "User-Agent": userAgent, Accept: "application/json" }
+    headers: { "User-Agent": userAgent, Accept: "application/json" },
+    signal: AbortSignal.timeout(secTimeoutMs)
   });
 
   if (!tickersResponse.ok) {
@@ -78,7 +81,8 @@ async function fetchSecFilings(resolution) {
   const cik = String(match.cik_str).padStart(10, "0");
   const [submissionsResponse, companyFacts] = await Promise.all([
     fetch(`https://data.sec.gov/submissions/CIK${cik}.json`, {
-      headers: { "User-Agent": userAgent, Accept: "application/json" }
+      headers: { "User-Agent": userAgent, Accept: "application/json" },
+      signal: AbortSignal.timeout(secTimeoutMs)
     }),
     fetchCompanyFacts(cik, userAgent)
   ]);
@@ -116,7 +120,8 @@ async function fetchSecFilings(resolution) {
 
 async function fetchCompanyFacts(cik, userAgent) {
   const response = await fetch(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, {
-    headers: { "User-Agent": userAgent, Accept: "application/json" }
+    headers: { "User-Agent": userAgent, Accept: "application/json" },
+    signal: AbortSignal.timeout(secTimeoutMs)
   }).catch(() => null);
 
   if (!response?.ok) {
@@ -125,15 +130,34 @@ async function fetchCompanyFacts(cik, userAgent) {
 
   const facts = await response.json();
   const gaap = facts?.facts?.["us-gaap"] || {};
-  const revenue = latestFactFrom([
+  const dei = facts?.facts?.dei || {};
+  const revenue = latestAnnualFactFrom([
     gaap.Revenues,
     gaap.RevenueFromContractWithCustomerExcludingAssessedTax,
     gaap.SalesRevenueNet
   ]);
-  const netIncome = latestFactFrom([gaap.NetIncomeLoss]);
-  const operatingCashflow = latestFactFrom([gaap.NetCashProvidedByUsedInOperatingActivities]);
-  const assets = latestFactFrom([gaap.Assets]);
-  const cashAndEquivalents = latestFactFrom([gaap.CashAndCashEquivalentsAtCarryingValue]);
+  const netIncome = latestAnnualFactFrom([gaap.NetIncomeLoss]);
+  const grossProfit = latestAnnualFactFrom([gaap.GrossProfit]);
+  const operatingIncome = latestAnnualFactFrom([gaap.OperatingIncomeLoss]);
+  const operatingCashflow = latestAnnualFactFrom([gaap.NetCashProvidedByUsedInOperatingActivities]);
+  const assets = latestInstantFactFrom([gaap.Assets]);
+  const cashAndEquivalents = latestInstantFactFrom([
+    gaap.CashAndCashEquivalentsAtCarryingValue,
+    gaap.CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents
+  ]);
+  const sharesOutstanding = latestInstantFactFrom([dei.EntityCommonStockSharesOutstanding]);
+  const currentDebt = latestInstantFactFrom([
+    gaap.ShortTermBorrowings,
+    gaap.ShortTermDebt,
+    gaap.LongTermDebtAndFinanceLeaseObligationsCurrent,
+    gaap.CurrentPortionOfLongTermDebt
+  ]);
+  const noncurrentDebt = latestInstantFactFrom([
+    gaap.LongTermDebtAndFinanceLeaseObligationsNoncurrent,
+    gaap.LongTermDebtNoncurrent,
+    gaap.LongTermDebt
+  ]);
+  const totalDebt = sumFacts(currentDebt, noncurrentDebt);
 
   return {
     sourceLabel: "SEC EDGAR companyfacts",
@@ -144,14 +168,37 @@ async function fetchCompanyFacts(cik, userAgent) {
     form: revenue?.form || netIncome?.form || operatingCashflow?.form || null,
     revenue: revenue?.val ?? null,
     netIncome: netIncome?.val ?? null,
+    grossProfit: grossProfit?.val ?? null,
+    operatingIncome: operatingIncome?.val ?? null,
     operatingCashflow: operatingCashflow?.val ?? null,
+    grossMargins: ratio(grossProfit?.val, revenue?.val),
+    operatingMargins: ratio(operatingIncome?.val, revenue?.val),
     assets: assets?.val ?? null,
-    cashAndEquivalents: cashAndEquivalents?.val ?? null
+    cashAndEquivalents: cashAndEquivalents?.val ?? null,
+    totalDebt,
+    sharesOutstanding: sharesOutstanding?.val ?? null
   };
 }
 
 function latestFactFrom(concepts) {
-  return concepts.flatMap((concept) => factRows(concept)).toSorted(sortFactRows)[0];
+  return concepts.flatMap((concept) => factRows(concept)).toSorted(sortFactRows)[0] || null;
+}
+
+function latestAnnualFactFrom(concepts) {
+  const annual = concepts
+    .flatMap((concept) => factRows(concept))
+    .filter((row) => row.fp === "FY")
+    .filter((row) => ["10-K", "20-F", "40-F"].includes(row.form))
+    .filter((row) => hasAnnualDuration(row));
+  return annual.toSorted(sortFactRows)[0] || latestFactFrom(concepts);
+}
+
+function latestInstantFactFrom(concepts) {
+  const instant = concepts
+    .flatMap((concept) => factRows(concept))
+    .filter((row) => !row.start || row.start === row.end)
+    .filter((row) => ["10-K", "10-Q", "20-F", "40-F"].includes(row.form));
+  return instant.toSorted(sortFactRows)[0] || latestFactFrom(concepts);
 }
 
 function factRows(concept) {
@@ -160,7 +207,29 @@ function factRows(concept) {
 }
 
 function sortFactRows(a, b) {
-  return String(b.end || b.filed || "").localeCompare(String(a.end || a.filed || ""));
+  return `${b.filed || ""}:${b.end || ""}`.localeCompare(`${a.filed || ""}:${a.end || ""}`);
+}
+
+function hasAnnualDuration(row) {
+  if (!row.start || !row.end) return true;
+  const start = new Date(row.start);
+  const end = new Date(row.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return true;
+  const days = (end.getTime() - start.getTime()) / 86_400_000;
+  return days >= 250 && days <= 380;
+}
+
+function ratio(numerator, denominator) {
+  const top = Number(numerator);
+  const bottom = Number(denominator);
+  if (!Number.isFinite(top) || !Number.isFinite(bottom) || bottom === 0) return null;
+  return top / bottom;
+}
+
+function sumFacts(...facts) {
+  const values = facts.map((fact) => Number(fact?.val)).filter((value) => Number.isFinite(value));
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0);
 }
 
 function fixtureDisclosure() {

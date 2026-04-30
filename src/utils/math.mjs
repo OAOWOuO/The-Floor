@@ -3,6 +3,7 @@ export function clamp(value, min, max) {
 }
 
 export function toNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
   if (value && typeof value === "object" && "raw" in value) {
     return toNumber(value.raw);
   }

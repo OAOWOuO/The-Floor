@@ -14,7 +14,11 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   const chartContext = buildRecentPriceContext(marketData?.chart);
   const secFacts = disclosureData?.companyFacts || {};
   const evidenceItems = [];
-  const researchWarnings = [...(marketData?.warnings || []), ...(disclosureData?.warnings || [])];
+  const researchWarnings = [
+    ...(resolution?.researchWarnings || []),
+    ...(marketData?.warnings || []),
+    ...(disclosureData?.warnings || [])
+  ];
   let evidenceIndex = 1;
 
   const latestPrice = firstNumber(
@@ -23,9 +27,9 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     quote.preMarketPrice,
     price.regularMarketPrice,
     summaryDetail.previousClose,
+    fallbackQuote.regularMarketPrice,
     chartMeta.regularMarketPrice,
-    chartMeta.previousClose,
-    fallbackQuote.regularMarketPrice
+    chartMeta.previousClose
   );
   const priceChange = firstNumber(
     quote.regularMarketChange,
@@ -33,7 +37,16 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     fallbackQuote.regularMarketChange,
     chartMeta.regularMarketPrice && chartMeta.previousClose ? chartMeta.regularMarketPrice - chartMeta.previousClose : null
   );
-  const marketCap = firstNumber(quote.marketCap, price.marketCap);
+  const secSharesOutstanding = firstNumber(secFacts.sharesOutstanding);
+  const marketCap = firstNumber(
+    quote.marketCap,
+    price.marketCap,
+    fallbackQuote.marketCap,
+    latestPrice !== null && secSharesOutstanding !== null ? latestPrice * secSharesOutstanding : null
+  );
+  if (quote.marketCap == null && price.marketCap == null && marketCap !== null && secSharesOutstanding !== null) {
+    researchWarnings.push("Market cap was derived from latest quote multiplied by SEC shares outstanding.");
+  }
   const displayName =
     firstString(quote.longName, quote.shortName, price.longName, price.shortName, resolution.displayName) ||
     resolution.resolvedTicker;
@@ -84,16 +97,22 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     );
   }
 
-  const revenueGrowth = toNumber(financialData.revenueGrowth);
-  const grossMargins = toNumber(financialData.grossMargins);
-  const operatingMargins = toNumber(financialData.operatingMargins);
-  const fcf = firstNumber(financialData.freeCashflow, financialData.freeCashFlow);
+  const yahooRevenueGrowth = toNumber(financialData.revenueGrowth);
+  const yahooGrossMargins = toNumber(financialData.grossMargins);
+  const yahooOperatingMargins = toNumber(financialData.operatingMargins);
+  const yahooFcf = firstNumber(financialData.freeCashflow, financialData.freeCashFlow);
+  const revenueGrowth = yahooRevenueGrowth;
+  const grossMargins = firstNumber(yahooGrossMargins, secFacts.grossMargins);
+  const operatingMargins = firstNumber(yahooOperatingMargins, secFacts.operatingMargins);
+  const fcf = yahooFcf;
   const opCash = firstNumber(financialData.operatingCashflow, financialData.operatingCashFlow, secFacts.operatingCashflow);
   const secRevenue = firstNumber(secFacts.revenue);
   const secNetIncome = firstNumber(secFacts.netIncome);
   const secPeriodLabel = secFactPeriodLabel(secFacts);
   if ([revenueGrowth, grossMargins, operatingMargins, fcf, opCash, secRevenue, secNetIncome].some((value) => value !== null)) {
-    const hasYahooFundamentals = [revenueGrowth, grossMargins, operatingMargins, fcf].some((value) => value !== null);
+    const hasYahooFundamentals = [yahooRevenueGrowth, yahooGrossMargins, yahooOperatingMargins, yahooFcf].some(
+      (value) => value !== null
+    );
     addEvidence(
       "fundamentals",
       hasYahooFundamentals ? "Yahoo Finance financialData" : "SEC EDGAR companyfacts",
@@ -176,11 +195,16 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     operatingMargins,
     freeCashflow: fcf,
     operatingCashflow: opCash,
-    totalDebt: firstNumber(financialData.totalDebt),
+    totalDebt: firstNumber(financialData.totalDebt, secFacts.totalDebt),
     secRevenue,
     secNetIncome,
+    secGrossProfit: firstNumber(secFacts.grossProfit),
+    secOperatingIncome: firstNumber(secFacts.operatingIncome),
     secAssets: firstNumber(secFacts.assets),
     secCashAndEquivalents: firstNumber(secFacts.cashAndEquivalents),
+    secGrossMargins: firstNumber(secFacts.grossMargins),
+    secOperatingMargins: firstNumber(secFacts.operatingMargins),
+    sharesOutstanding: secSharesOutstanding,
     secFiscalYear: secFacts.fiscalYear || null,
     secFiscalPeriod: secFacts.fiscalPeriod || null,
     secPeriodEnd: secFacts.periodEnd || null,

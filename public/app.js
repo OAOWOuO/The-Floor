@@ -621,13 +621,13 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
 
 function initialConvictionFromPacket(packet, overrides = {}) {
   const stats = packet?.keyStats || {};
-  const growth = Number(stats.revenueGrowth);
-  const margin = Number(stats.grossMargins);
-  const beta = Number(stats.beta);
-  const trailingPe = Number(stats.trailingPE);
-  const periodReturn = Number(packet?.recentPriceContext?.periodReturnPct);
-  const fcf = Number(stats.freeCashflow);
-  const totalDebt = Number(stats.totalDebt);
+  const growth = finiteNumber(stats.revenueGrowth);
+  const margin = finiteNumber(stats.grossMargins);
+  const beta = finiteNumber(stats.beta);
+  const trailingPe = finiteNumber(stats.trailingPE);
+  const periodReturn = finiteNumber(packet?.recentPriceContext?.periodReturnPct);
+  const fcf = finiteNumber(stats.freeCashflow);
+  const totalDebt = finiteNumber(stats.totalDebt);
   const baseline = {
     marcus: clampConviction(18 + (Number.isFinite(growth) ? growth * 40 : 0) + (Number.isFinite(margin) ? margin * 12 : 0)),
     yara: clampConviction(-18 - (Number.isFinite(trailingPe) && trailingPe > 60 ? 12 : 0)),
@@ -1422,8 +1422,13 @@ function renderDataPanel(packet) {
     ["Total debt", "totalDebt", 0],
     ["SEC revenue", "secRevenue", 0],
     ["SEC net income", "secNetIncome", 0],
+    ["SEC gross profit", "secGrossProfit", 0],
+    ["SEC operating income", "secOperatingIncome", 0],
+    ["SEC gross margin", "secGrossMargins", 1],
+    ["SEC operating margin", "secOperatingMargins", 1],
     ["SEC assets", "secAssets", 0],
     ["SEC cash", "secCashAndEquivalents", 0],
+    ["Shares outstanding", "sharesOutstanding", 0],
     ["SEC fiscal year", "secFiscalYear", 0],
     ["SEC fiscal period", "secFiscalPeriod", 0],
     ["SEC period end", "secPeriodEnd", 0],
@@ -1516,7 +1521,14 @@ function dataRow(label, value) {
 }
 
 function formatStatValue(key, value, digits = 1) {
-  if (key === "revenueGrowth" || key === "grossMargins" || key === "operatingMargins") {
+  if (isMissingNumber(value)) return "n/a";
+  if (
+    key === "revenueGrowth" ||
+    key === "grossMargins" ||
+    key === "operatingMargins" ||
+    key === "secGrossMargins" ||
+    key === "secOperatingMargins"
+  ) {
     return formatPercent(value);
   }
   if (["secFiscalPeriod", "secPeriodEnd", "secForm"].includes(key)) {
@@ -1524,6 +1536,9 @@ function formatStatValue(key, value, digits = 1) {
   }
   if (key === "secFiscalYear") {
     return formatValue(value, 0);
+  }
+  if (key === "sharesOutstanding") {
+    return formatMarketCap(value);
   }
   if (key.endsWith("flow") || key === "totalDebt" || key.startsWith("sec")) {
     return formatMarketCap(value);
@@ -1661,18 +1676,21 @@ function formatScore(value) {
 }
 
 function formatCurrency(value, currency) {
+  if (isMissingNumber(value)) return "n/a";
   const number = Number(value);
   if (!Number.isFinite(number)) return "n/a";
   return `${currency || ""} ${number.toLocaleString(undefined, { maximumFractionDigits: 2 })}`.trim();
 }
 
 function formatSigned(value) {
+  if (isMissingNumber(value)) return "n/a";
   const number = Number(value);
   if (!Number.isFinite(number)) return "n/a";
   return `${number >= 0 ? "+" : ""}${number.toFixed(2)}`;
 }
 
 function formatMarketCap(value) {
+  if (isMissingNumber(value)) return "n/a";
   const number = Number(value);
   if (!Number.isFinite(number)) return "n/a";
   const abs = Math.abs(number);
@@ -1683,12 +1701,14 @@ function formatMarketCap(value) {
 }
 
 function formatValue(value, digits = 1) {
+  if (isMissingNumber(value)) return "n/a";
   const number = Number(value);
   if (!Number.isFinite(number)) return "n/a";
   return number.toFixed(digits);
 }
 
 function formatPercent(value) {
+  if (isMissingNumber(value)) return "n/a";
   const number = Number(value);
   if (!Number.isFinite(number)) return "n/a";
   const scaled = Math.abs(number) <= 2 ? number * 100 : number;
@@ -1700,6 +1720,16 @@ function formatTimestamp(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toISOString().replace(".000Z", "Z");
+}
+
+function isMissingNumber(value) {
+  return value === null || value === undefined || value === "";
+}
+
+function finiteNumber(value) {
+  if (isMissingNumber(value)) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function scrollFeed() {

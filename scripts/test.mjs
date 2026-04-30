@@ -11,6 +11,7 @@ import { createConvictionState, applyConvictionDelta } from "../src/services/con
 import { synthesizeResearch } from "../src/services/synthesis-service.mjs";
 import { AppError } from "../src/utils/errors.mjs";
 import { clientKey, createRateLimiter } from "../src/utils/rate-limit.mjs";
+import { toNumber } from "../src/utils/math.mjs";
 
 const originalFixture = process.env.THE_FLOOR_FIXTURE_MODE;
 const originalMock = process.env.OPENAI_MOCK;
@@ -24,6 +25,10 @@ assert.equal(sanitizeTicker(" brk-b "), "BRK-B");
 assert.equal(sanitizeTicker(" 7203.T "), "7203.T");
 assert.equal(sanitizeTicker("$nvda<script>"), "NVDASCRIPT");
 assert.equal(sanitizeTicker(""), "");
+assert.equal(toNumber(null), null);
+assert.equal(toNumber(undefined), null);
+assert.equal(toNumber(""), null);
+assert.equal(toNumber(0), 0);
 
 const resolution = await resolveTicker("MSFT");
 assert.equal(resolution.resolvedTicker, "MSFT");

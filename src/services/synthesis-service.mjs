@@ -43,11 +43,11 @@ function mockSynthesis(packet, question) {
   const stats = ids[3] || fundamentals;
   const price = ids[4] || first;
   const disclosure = ids[5] || profile;
-  const growth = Number(packet.keyStats?.revenueGrowth || 0);
-  const margin = Number(packet.keyStats?.grossMargins || 0);
-  const fcf = Number(packet.keyStats?.freeCashflow || 0);
-  const beta = Number(packet.keyStats?.beta || 1);
-  const totalDebt = Number(packet.keyStats?.totalDebt || 0);
+  const growth = finiteNumber(packet.keyStats?.revenueGrowth, 0);
+  const margin = finiteNumber(packet.keyStats?.grossMargins, 0);
+  const fcf = finiteNumber(packet.keyStats?.freeCashflow, 0);
+  const beta = finiteNumber(packet.keyStats?.beta, 1);
+  const totalDebt = finiteNumber(packet.keyStats?.totalDebt, 0);
   const disclosureAvailable = Boolean(packet.filingOrDisclosureSummary?.available);
   const questionFrame = question ? ` The user's frame is "${question}".` : "";
 
@@ -124,4 +124,10 @@ function formatPct(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function finiteNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }

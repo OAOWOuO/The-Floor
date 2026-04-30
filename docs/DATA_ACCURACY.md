@@ -29,6 +29,14 @@ price captured at dataTimestamp from quoteSourceLabel
 
 Quotes may be delayed by the upstream provider. If the provider cannot return a usable quote, the UI must show a failure state instead of falling back to an old saved value.
 
+Provider behavior must be explicit:
+
+- Yahoo Finance quote and quoteSummary are preferred when available.
+- If Yahoo quote is unavailable or rate-limited, Stooq delayed quote may be used and must be labeled as such.
+- SEC companyfacts can enrich annual financial statement values and shares outstanding, but the UI must distinguish SEC fields from Yahoo fields.
+- `null`, `undefined`, and empty provider fields must render as `n/a`, never as `0`.
+- Market cap may be derived only when a current quote and SEC shares outstanding are both available; the warning list must say it was derived.
+
 ## Live Mode
 
 Live mode uses the same research packet construction, then adds OpenAI synthesis and debate generation. It requires `OPENAI_API_KEY` on the server.
@@ -45,3 +53,4 @@ The explicit static API mode is for SSE mechanics only. Its packet contains no p
 - Data tab shows snapshot timestamp and quote source.
 - Source chips cite evidence IDs from the current packet.
 - Missing data is shown as missing, not patched over with demo numbers.
+- Missing numeric fields do not render as zero.
