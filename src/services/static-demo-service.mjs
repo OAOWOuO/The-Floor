@@ -15,7 +15,7 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
   session.researchPacket = packet;
   session.convictionState = convictionState;
 
-  writeEvent(response, "session", {
+  writeEvent("session", {
     sessionId: session.id,
     ticker: session.ticker,
     question: session.question,
@@ -23,7 +23,7 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
     mode: "static"
   });
 
-  writeEvent(response, "research_packet_summary", {
+  writeEvent("research_packet_summary", {
     ...packet,
     companySnapshot: "Explicit static demo packet. This is not real market research.",
     analystPriors: {
@@ -43,7 +43,7 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
   for (const turn of turns) {
     if (session.closed) return;
     const agent = getAgent(turn.agentId);
-    writeEvent(response, "typing", { agentId: agent.id, name: agent.name, title: agent.title });
+    writeEvent("typing", { agentId: agent.id, name: agent.name, title: agent.title });
     await sleep(Math.min(850, perTurnMs * 0.35));
     const message = {
       id: crypto.randomUUID(),
@@ -60,8 +60,8 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
       rationaleTag: turn.rationaleTag
     };
     session.transcript.push(message);
-    writeEvent(response, "message", message);
-    writeEvent(response, "conviction", applyConvictionDelta(convictionState, turn.convictionDeltaByAgent, turn.rationaleTag));
+    writeEvent("message", message);
+    writeEvent("conviction", applyConvictionDelta(convictionState, turn.convictionDeltaByAgent, turn.rationaleTag));
     await sleep(Math.min(900, perTurnMs * 0.55));
   }
 
@@ -78,8 +78,8 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
     citedEvidenceIds: []
   };
   session.transcript.push(moderator);
-  writeEvent(response, "message", moderator);
-  writeEvent(response, "complete", {
+  writeEvent("message", moderator);
+  writeEvent("complete", {
     sessionId: session.id,
     ticker: session.ticker,
     conviction: convictionState.conviction,
@@ -93,16 +93,20 @@ function buildStaticPacket(ticker) {
     resolvedTicker: ticker,
     displayName: `${ticker} Static Demo`,
     exchange: "DEMO",
-    currency: "USD",
+    currency: null,
     marketState: "STATIC",
-    latestPrice: 100,
-    priceChange: 1.2,
-    marketCap: 100000000000,
+    dataTimestamp: new Date().toISOString(),
+    quoteSourceLabel: "No quote source",
+    quoteSourceUrl: null,
+    snapshotPolicy: "Explicit static API demo. It contains no stock price, valuation, or financial statement data.",
+    latestPrice: null,
+    priceChange: null,
+    marketCap: null,
     sector: "Demo",
     industry: "Static mode",
-    businessSummary: "Static demo mode uses canned data and is intentionally separated from real research mode.",
-    keyStats: { trailingPE: 30, beta: 1.1, revenueGrowth: 0.14, grossMargins: 0.62 },
-    recentPriceContext: { observations: ["Static price context for demo mode only."] },
+    businessSummary: "Static demo mode demonstrates SSE mechanics only and is intentionally separated from real research mode.",
+    keyStats: {},
+    recentPriceContext: { observations: ["Static mode intentionally contains no market price context."] },
     filingOrDisclosureSummary: { available: false, summary: "Static mode does not fetch filings.", recentFilings: [] },
     evidenceItems: [
       {
@@ -111,12 +115,12 @@ function buildStaticPacket(ticker) {
         sourceLabel: "Static demo packet",
         sourceUrl: null,
         timestamp: new Date().toISOString(),
-        claim: "This is explicit static demo mode, not real research.",
+        claim: "This is explicit static demo mode with no financial values, not real research.",
         importance: 1,
         analystRelevance: ["skeptic"]
       }
     ],
-    researchWarnings: ["Static demo mode is not market research."],
+    researchWarnings: ["Static demo mode is not market research and contains no financial data."],
     dataCoverageScore: 0,
     readyForDebate: true
   };
@@ -154,4 +158,3 @@ function staticTurns(ticker) {
     }
   ];
 }
-

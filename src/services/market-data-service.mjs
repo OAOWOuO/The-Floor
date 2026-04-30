@@ -196,6 +196,8 @@ function fixtureMarketData(resolution) {
 
   return {
     fetchedAt: now.toISOString(),
+    quoteSourceLabel: "Fixture market data",
+    quoteSourceUrl: `https://finance.yahoo.com/quote/${encodeURIComponent(resolution.resolvedTicker)}`,
     quote: {
       symbol: resolution.resolvedTicker,
       shortName: resolution.displayName,

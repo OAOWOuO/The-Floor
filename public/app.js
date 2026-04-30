@@ -8,7 +8,6 @@ const state = {
   complete: false,
   mode: "server",
   staticRunId: 0,
-  staticMetrics: null,
   staticReplay: null,
   staticHistory: [],
   staticFollowUpCount: 0,
@@ -220,6 +219,37 @@ function renderLiveUnavailable() {
     message:
       "This public hosted demo does not run visitor-funded live research or collect browser API keys. Use the Live tab helper to fork/deploy your own copy, then add OPENAI_API_KEY in your Render environment."
   });
+}
+
+function resetRoomForFailure(status = "Failed") {
+  if (state.eventSource) state.eventSource.close();
+  state.mode = "setup";
+  state.sessionId = null;
+  state.complete = false;
+  state.messageQueue = Promise.resolve();
+  state.researchStages = new Map();
+  state.researchPacket = null;
+  state.evidenceMap = new Map();
+  state.lastError = null;
+  state.conviction = {};
+  state.convictionHistory = {};
+  elements.feed.innerHTML = "";
+  elements.researchTimeline.innerHTML = "";
+  elements.researchTimeline.hidden = true;
+  elements.researchSummary.innerHTML = "";
+  elements.metricsGrid.innerHTML = "";
+  elements.evidenceList.innerHTML = "";
+  elements.coverageChip.textContent = "No packet";
+  renderDataPanel(null);
+  renderConviction();
+  setRoomTab("debate");
+  hideTyping();
+  elements.followupInput.disabled = true;
+  elements.followupButton.disabled = true;
+  elements.begin.disabled = false;
+  elements.roomTitle.textContent = "Could not start room";
+  elements.sessionChip.textContent = "No session";
+  setStatus(status, false);
 }
 
 function beginDebate() {
@@ -443,52 +473,98 @@ async function loadShowcaseReplay(ticker) {
   }
 }
 
+async function loadShowcaseSnapshot(ticker) {
+  const response = await fetch(`/api/showcase-snapshot?ticker=${encodeURIComponent(ticker)}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || `Could not fetch showcase data for ${ticker}.`;
+    const error = new Error(message);
+    error.code = payload?.error?.code || "showcase_snapshot_failed";
+    error.details = payload?.error?.details || {};
+    throw error;
+  }
+  return payload.researchPacket;
+}
+
 async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   const runId = (state.staticRunId += 1);
-  const normalizedTicker = ticker.toUpperCase().replace(/[^A-Z0-9.:-]/g, "").slice(0, 14) || "NVDA";
+  const normalizedTicker = ticker.toUpperCase().replace(/[^A-Z0-9.:-]/g, "").slice(0, 14);
+  if (!normalizedTicker) {
+    resetRoomForFailure("Showcase");
+    renderFailure({ code: "invalid_ticker", message: "Enter a ticker before starting showcase." });
+    return;
+  }
   const random = mulberry32(hashString(`${normalizedTicker}:${question || "demo"}`));
-  const replay = await loadShowcaseReplay(normalizedTicker);
 
   state.mode = "static";
   state.sessionId = `demo-${Date.now().toString(36)}`;
   state.complete = false;
   state.messageQueue = Promise.resolve();
-  state.staticReplay = replay;
-  state.staticMetrics = replay?.metrics || buildStaticMetrics(normalizedTicker, random);
+  state.staticReplay = null;
   state.staticHistory = [];
   state.staticFollowUpCount = 0;
   state.researchStages = new Map();
-  state.researchPacket = replay?.researchPacket || buildStaticResearchPacket(normalizedTicker, state.staticMetrics);
-  state.evidenceMap = new Map((state.researchPacket.evidenceItems || []).map((item) => [item.evidenceId, item]));
+  state.researchPacket = null;
+  state.evidenceMap = new Map();
   state.activeRoomTab = "debate";
   state.lastError = null;
-  state.conviction = replay?.initialConviction || { marcus: 34, yara: -31, kenji: 0, sofia: 6, skeptic: 0 };
-  state.convictionHistory = Object.fromEntries(
-    Object.keys(state.conviction).map((agentId) => [agentId, [state.conviction[agentId]]])
-  );
+  state.conviction = {};
+  state.convictionHistory = {};
 
   elements.feed.innerHTML = "";
   elements.researchTimeline.innerHTML = "";
-  elements.researchTimeline.hidden = true;
+  elements.researchTimeline.hidden = false;
   elements.typing.hidden = true;
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
   elements.begin.disabled = true;
-  elements.roomTitle.textContent = `${state.researchPacket.resolvedTicker} saved replay`;
+  elements.roomTitle.textContent = `${normalizedTicker} fetching showcase snapshot`;
   elements.sessionChip.textContent = state.sessionId.slice(0, 8);
+  setStatus("Fetching market snapshot", true);
+  renderResearchTimelineForShowcase();
+  renderDataPanel(null);
+  setRoomTab("debate");
+
+  let replay;
+  let snapshot;
+  try {
+    [replay, snapshot] = await Promise.all([
+      loadShowcaseReplay(normalizedTicker),
+      loadShowcaseSnapshot(normalizedTicker)
+    ]);
+  } catch (error) {
+    if (runId !== state.staticRunId) return;
+    elements.researchTimeline.hidden = true;
+    elements.begin.disabled = false;
+    setStatus("Failed", false);
+    renderFailure({
+      code: error.code || "showcase_snapshot_failed",
+      message: `${error.message} The app will not display stale saved prices.`
+    });
+    return;
+  }
+
+  if (runId !== state.staticRunId) return;
+
+  state.staticReplay = replay;
+  state.researchPacket = snapshot;
+  state.evidenceMap = new Map((state.researchPacket.evidenceItems || []).map((item) => [item.evidenceId, item]));
+  state.conviction = replay?.initialConviction || initialConvictionFromPacket(snapshot);
+  state.convictionHistory = Object.fromEntries(
+    Object.keys(state.conviction).map((agentId) => [agentId, [state.conviction[agentId]]])
+  );
+  elements.researchTimeline.hidden = true;
+  elements.roomTitle.textContent = `${state.researchPacket.resolvedTicker} showcase snapshot`;
   setStatus(label, true);
   renderResearchSummary(state.researchPacket);
   renderMetrics(state.researchPacket);
   renderEvidence(state.researchPacket);
   renderDataPanel(state.researchPacket);
-  setRoomTab("debate");
   renderConviction();
 
-  const plan = replay?.turns?.length
-    ? replay.turns.map((turn) => replayTurnToMessage(turn))
-    : buildStaticPlan(normalizedTicker, question, state.staticMetrics, random);
+  const plan = buildAuditedShowcasePlan(normalizedTicker, question, state.researchPacket);
 
-  for (const message of plan) {
+  for (const message of plan.turns) {
     if (runId !== state.staticRunId) return;
     showTyping(message);
     await delay(720 + random() * 480);
@@ -501,7 +577,7 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   }
 
   if (runId !== state.staticRunId) return;
-  const moderator = replay?.moderator ? replayModeratorToMessage(replay.moderator, normalizedTicker) : buildStaticModerator(normalizedTicker);
+  const moderator = plan.moderator;
   showTyping(moderator);
   await delay(900);
   hideTyping();
@@ -515,39 +591,183 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   elements.followupInput.focus();
 }
 
-function replayTurnToMessage(turn) {
-  const agent = fallbackAgents.find((item) => item.id === turn.agentId) || fallbackAgents[0];
+function renderResearchTimelineForShowcase() {
+  const capturedAt = new Date().toISOString();
+  const stages = [
+    { stage: "resolving_ticker", label: "Resolving ticker", status: "complete", timestamp: capturedAt },
+    { stage: "fetching_market_data", label: "Fetching market data", status: "active", timestamp: capturedAt },
+    { stage: "fetching_company_profile", label: "Fetching company profile and key statistics", status: "pending", timestamp: capturedAt },
+    { stage: "fetching_disclosures", label: "Fetching filings / disclosures", status: "pending", timestamp: capturedAt },
+    { stage: "building_research_packet", label: "Building audited showcase snapshot", status: "pending", timestamp: capturedAt }
+  ];
+  state.researchStages = new Map(stages.map((stage) => [stage.stage, stage]));
+  renderResearchTimeline();
+}
+
+function initialConvictionFromPacket(packet) {
+  const stats = packet?.keyStats || {};
+  const growth = Number(stats.revenueGrowth);
+  const margin = Number(stats.grossMargins);
+  const beta = Number(stats.beta);
+  const trailingPe = Number(stats.trailingPE);
+  const periodReturn = Number(packet?.recentPriceContext?.periodReturnPct);
+  return {
+    marcus: clampConviction(18 + (Number.isFinite(growth) ? growth * 40 : 0) + (Number.isFinite(margin) ? margin * 12 : 0)),
+    yara: clampConviction(-18 - (Number.isFinite(trailingPe) && trailingPe > 60 ? 12 : 0)),
+    kenji: clampConviction(Number.isFinite(beta) ? (beta > 1.6 ? -8 : 4) : 0),
+    sofia: clampConviction(Number.isFinite(periodReturn) && periodReturn < -15 ? -8 : 3),
+    skeptic: 0
+  };
+}
+
+function buildAuditedShowcasePlan(ticker, question, packet) {
+  const ids = evidenceIds(packet);
+  const stats = packet.keyStats || {};
+  const context = question ? ` The user's frame is: "${question}".` : "";
+  const captured = formatTimestamp(packet.dataTimestamp);
+  const quoteLine = `${packet.resolvedTicker} snapshot at ${captured}: price ${formatCurrency(packet.latestPrice, packet.currency)}, change ${formatSigned(packet.priceChange)}, market cap ${formatMarketCap(packet.marketCap)}.`;
+  const growthLine = metricSentence([
+    ["revenue growth", formatPercent(stats.revenueGrowth)],
+    ["gross margin", formatPercent(stats.grossMargins)],
+    ["operating margin", formatPercent(stats.operatingMargins)]
+  ]);
+  const cashLine = metricSentence([
+    ["free cash flow", formatMarketCap(stats.freeCashflow)],
+    ["operating cash flow", formatMarketCap(stats.operatingCashflow)],
+    ["total debt", formatMarketCap(stats.totalDebt)]
+  ]);
+  const valuationLine = metricSentence([
+    ["trailing P/E", formatValue(stats.trailingPE, 1)],
+    ["forward P/E", formatValue(stats.forwardPE, 1)],
+    ["beta", formatValue(stats.beta, 2)]
+  ]);
+  const chart = packet.recentPriceContext || {};
+  const chartLine = chart.periodReturnPct == null
+    ? "The six-month chart did not return enough observations for a clean price-history read."
+    : `Six-month context ${chart.rangeStart} to ${chart.rangeEnd}: return ${chart.periodReturnPct}%, range ${formatCurrency(chart.low, packet.currency)} to ${formatCurrency(chart.high, packet.currency)}.`;
+
+  const turns = [
+    auditedMessage(
+      "marcus",
+      `${quoteLine}${context} The constructive case has to start with current evidence, not old replay numbers. ${growthLine || "Growth and margin fields are unavailable in this snapshot, so I would keep the upside case conditional."}`,
+      [ids.market, ids.fundamentals, ids.stats],
+      { marcus: 4, sofia: 1 },
+      "current snapshot anchored upside case"
+    ),
+    auditedMessage(
+      "yara",
+      `@Marcus current price is not evidence of durability. ${cashLine || "This snapshot does not provide enough cash-flow fields, which is itself a quality warning."} I need cash economics before I let narrative raise conviction.`,
+      [ids.fundamentals, ids.disclosure],
+      { yara: -5, marcus: -2 },
+      "cash-flow quality challenged"
+    ),
+    auditedMessage(
+      "kenji",
+      `${chartLine} ${valuationLine || "Valuation and beta fields are incomplete."} The distribution should stay wide until the data narrows it.`,
+      [ids.priceHistory, ids.stats, ids.market],
+      { kenji: 3, marcus: -1 },
+      "distribution widened"
+    ),
+    auditedMessage(
+      "sofia",
+      `${packet.displayName} is classified as ${packet.sector || "sector unavailable"} / ${packet.industry || "industry unavailable"} in this snapshot. Macro framing should flow through that business mix, currency ${packet.currency || "n/a"}, and market state ${packet.marketState || "n/a"}.`,
+      [ids.profile, ids.market],
+      { sofia: 3 },
+      "macro channel contextualized"
+    ),
+    auditedMessage(
+      "skeptic",
+      `Pause. The snapshot records quote, profile, stats, and disclosures, but it does not prove direct demand. I still want workload usage, retention, customer ROI, paid adoption, or unit economics before the room treats proxies as facts.`,
+      [ids.market, ids.profile, ids.disclosure],
+      { marcus: -4, yara: 1, skeptic: 2 },
+      "missing direct evidence"
+    ),
+    auditedMessage(
+      "marcus",
+      `@The Skeptic fair. My bull case should update only if the next snapshots show the same direction in fundamentals and cash economics. Current evidence gives me a thesis, not permission to ignore falsifiers.`,
+      [ids.fundamentals, ids.stats],
+      { marcus: 2, kenji: 1 },
+      "bull case made falsifiable"
+    ),
+    auditedMessage(
+      "yara",
+      `Then the scorecard is explicit: keep checking cash flow, margin shape, leverage, and disclosures against the captured snapshot. If those do not improve, the story should not get more credit just because the tape moved.`,
+      [ids.fundamentals, ids.disclosure],
+      { yara: -3 },
+      "quality scorecard tightened"
+    ),
+    auditedMessage(
+      "kenji",
+      `I would mark this as an audited showcase run, not a recommendation. The important upgrade is that every displayed number now ties back to a snapshot timestamp and source instead of a hardcoded replay value.`,
+      [ids.market, ids.priceHistory],
+      { kenji: 2, skeptic: 1 },
+      "source discipline improved"
+    )
+  ];
+  const moderator = {
+      id: crypto.randomUUID(),
+      agentId: "moderator",
+      name: "Moderator",
+      title: "Desk Chair",
+      short: "MOD",
+      color: "#d9e1ea",
+      timestamp: timestamp(),
+      body: [
+        `Moderator wrap on ${ticker}:`,
+        "",
+        `This showcase used a market data snapshot captured at ${captured}. The strongest bull point was evidence-based operating upside where fundamentals support it. The strongest bear point was cash-flow and direct-demand proof. Kenji kept the distribution wide. Sofia put the company back into sector, currency, and market-state context. The Skeptic forced the room to separate sourced metrics from assumptions.`,
+        "",
+        "No recommendation. This is an educational showcase with a captured data snapshot, not financial advice."
+      ].join("\n"),
+      citedEvidenceIds: [ids.market, ids.fundamentals, ids.disclosure].filter(Boolean),
+      citations: [],
+      effects: {}
+    };
+
+  return { turns, moderator };
+}
+
+function auditedMessage(agentId, body, citedEvidenceIds, effects, rationaleTag) {
+  const agent = fallbackAgents.find((item) => item.id === agentId);
   return {
     id: crypto.randomUUID(),
-    agentId: agent.id,
+    agentId,
     name: agent.name,
     title: agent.title,
     short: agent.short,
     color: agent.color,
     timestamp: timestamp(),
-    body: turn.body,
-    citedEvidenceIds: turn.citedEvidenceIds || [],
-    citations: turn.citations || [],
-    bid: turn.bid || { score: 8.6, reason: "Saved showcase replay selected this speaker." },
-    effects: turn.effects || turn.convictionDeltaByAgent || {},
-    rationaleTag: turn.rationaleTag || "saved replay evidence update"
+    body,
+    citedEvidenceIds: [...new Set(citedEvidenceIds.filter(Boolean))],
+    citations: [],
+    bid: { score: 8.8, reason: "Audited showcase route selected this speaker from the current snapshot." },
+    effects,
+    rationaleTag
   };
 }
 
-function replayModeratorToMessage(moderator, ticker) {
+function evidenceIds(packet) {
+  const byType = new Map((packet.evidenceItems || []).map((item) => [item.sourceType, item.evidenceId]));
   return {
-    id: crypto.randomUUID(),
-    agentId: "moderator",
-    name: "Moderator",
-    title: "Desk Chair",
-    short: "MOD",
-    color: "#d9e1ea",
-    timestamp: timestamp(),
-    body: moderator.body || `Moderator wrap on ${ticker}: saved showcase replay complete.`,
-    citedEvidenceIds: moderator.citedEvidenceIds || [],
-    citations: moderator.citations || ["saved replay"],
-    effects: moderator.effects || {}
+    market: byType.get("market_data") || packet.evidenceItems?.[0]?.evidenceId,
+    profile: byType.get("company_profile") || packet.evidenceItems?.[1]?.evidenceId,
+    fundamentals: byType.get("fundamentals") || packet.evidenceItems?.[2]?.evidenceId,
+    stats: byType.get("key_statistics") || packet.evidenceItems?.[3]?.evidenceId,
+    priceHistory: byType.get("price_history") || packet.evidenceItems?.[4]?.evidenceId,
+    disclosure: byType.get("disclosure") || packet.evidenceItems?.at(-1)?.evidenceId
   };
+}
+
+function metricSentence(items) {
+  const visible = items.filter(([, value]) => value && value !== "n/a");
+  if (!visible.length) return "";
+  return visible.map(([label, value]) => `${label} ${value}`).join("; ") + ".";
+}
+
+function clampConviction(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(-100, Math.min(100, Math.round(number)));
 }
 
 async function sendStaticFollowUp(message) {
@@ -581,85 +801,9 @@ async function sendStaticFollowUp(message) {
   }
 }
 
-function buildStaticPlan(ticker, question, metrics, random) {
-  const context = question ? ` The user's frame is: "${question}".` : "";
-  const finalBull = random() > 0.5;
-  const lines = [
-    staticMessage(
-      "marcus",
-      `${ticker} looks expensive only if you freeze the denominator.${context} Forward revisions are up ${metrics.revisionUpPct}%, and that is the part bears keep underestimating. If the earnings base is moving, today's P/E is a stale argument.`,
-      ["revision tape", "growth durability"],
-      { marcus: 7, sofia: 2 }
-    ),
-    staticMessage(
-      "yara",
-      `@Marcus revisions are not cash. Free cash flow yield is ${metrics.fcfYieldPct}% and accrual pressure is ${metrics.accrualPressure}/100. I want cash conversion before I let a story call itself inevitable.`,
-      ["cash conversion", "quality of earnings"],
-      { yara: -7, marcus: -3 }
-    ),
-    staticMessage(
-      "kenji",
-      `Data check: ${ticker} 60d realized vol is ${metrics.realizedVolPct}%, implied vol is ${metrics.impliedVolPct}%, beta is ${metrics.beta}. The market is admitting uncertainty, even if the room wants clean conviction.`,
-      ["volatility sheet", "factor snapshot"],
-      { kenji: metrics.impliedVolPct < metrics.realizedVolPct ? -3 : 3 }
-    ),
-    staticMessage(
-      "sofia",
-      `The single-name debate needs a macro frame. Rate sensitivity is ${metrics.rateSensitivity}/100 and USD exposure is ${metrics.usdExposurePct}%. Execution can be good while the discount rate still compresses the multiple.`,
-      ["rates path", "FX exposure"],
-      { sofia: metrics.rateSensitivity > 55 ? -5 : 5 }
-    ),
-    staticMessage(
-      "skeptic",
-      `Pause. Marcus is using revisions as demand, Yara is using cash conversion as proof of fragility, and neither is direct evidence. Where is usage, renewal quality, retention, or workload data?`,
-      ["assumption audit"],
-      { marcus: -4, yara: 2, sofia: -1 }
-    ),
-    staticMessage(
-      "marcus",
-      `@The Skeptic fair. But power-law stocks rarely give you clean direct evidence at the exact moment it matters. If revenue growth is ${metrics.revenueGrowthPct}% with gross margin near ${metrics.grossMarginPct}%, the market will pay for optionality.`,
-      ["operating leverage"],
-      { marcus: 5 }
-    ),
-    staticMessage(
-      "yara",
-      `@Marcus optionality is what people say when they do not want to price dilution, working capital, or customer concentration. If receivables keep outrunning revenue, the thesis shifts from growth scarcity to earnings quality.`,
-      ["working capital"],
-      { yara: -6, marcus: -2 }
-    ),
-    staticMessage(
-      "kenji",
-      `I am marking the room's error bars as too narrow. Estimate dispersion is ${metrics.estimateDispersionPct}%. Bull and bear both depend on second derivative evidence, not just this quarter's direction.`,
-      ["estimate dispersion"],
-      { kenji: 2, marcus: -1, yara: 1 }
-    ),
-    staticMessage(
-      "sofia",
-      `Cycle risk is real, but transmission matters. Does macro hit demand, customer budgets, funding conditions, FX translation, or just the multiple? Those are different failure modes.`,
-      ["macro transmission"],
-      { sofia: 3 }
-    ),
-    staticMessage(
-      "skeptic",
-      `The room keeps reaching for analogies. Which year is the comp, and what variable makes it valid? If you cannot name the variable, the analogy is decoration.`,
-      ["bias check"],
-      { marcus: -3, yara: 1, sofia: -2 }
-    ),
-    staticMessage(
-      finalBull ? "marcus" : "yara",
-      finalBull
-        ? `My final push: if revisions remain clustered positive, the bear case has to explain why every customer and every analyst is wrong at the same time. That can happen, but it is a high bar.`
-        : `My final push: the bull case still assumes the market will keep capitalizing future growth before cash evidence arrives. That is not analysis; that is patience funded by liquidity.`,
-      ["closing view"],
-      finalBull ? { marcus: 4 } : { yara: -4 }
-    )
-  ];
-
-  return lines;
-}
-
 function staticMessage(agentId, body, citations, effects) {
   const agent = fallbackAgents.find((item) => item.id === agentId);
+  const evidenceIds = (citations || []).filter((item) => state.evidenceMap.has(item));
   return {
     id: crypto.randomUUID(),
     agentId,
@@ -669,61 +813,43 @@ function staticMessage(agentId, body, citations, effects) {
     color: agent.color,
     timestamp: timestamp(),
     body,
-    citations,
-    bid: { score: 8.4, reason: "Showcase replay selected this speaker." },
+    citedEvidenceIds: evidenceIds,
+    citations: (citations || []).filter((item) => !state.evidenceMap.has(item)),
+    bid: { score: 8.4, reason: "Follow-up router selected this speaker from the current snapshot." },
     effects
   };
 }
 
-function buildStaticModerator(ticker) {
-  return {
-    id: crypto.randomUUID(),
-    agentId: "moderator",
-    name: "Moderator",
-    title: "Desk Chair",
-    short: "MOD",
-    color: "#d9e1ea",
-    timestamp: timestamp(),
-    body: [
-      `Moderator wrap on ${ticker}:`,
-      "",
-      "This showcase replay demonstrates the debate mechanics: evidence quality, speaker routing, conviction updates, and follow-up behavior. Marcus wants to underwrite revision momentum and operating leverage. Yara refuses to accept narrative until cash conversion improves. Kenji says the distribution is wider than anyone's language. Sofia separates fundamentals from discount-rate and policy risk. The Skeptic's strongest intervention was forcing the room to stop treating proxies as direct demand evidence.",
-      "",
-      "No recommendation. This is a public replay, not live research or a trade instruction."
-    ].join("\n"),
-    citations: ["debate transcript", "conviction tracker"],
-    effects: {}
-  };
-}
-
 function buildStaticFollowUpReplies(body) {
-  const metrics = state.staticMetrics;
+  const packet = state.researchPacket || {};
+  const stats = packet.keyStats || {};
+  const snapshot = formatTimestamp(packet.dataTimestamp);
   const selected = selectStaticFollowUpSpeakers(body);
   const repliesByAgent = {
     marcus: [
-      `@You I'll jump in. The bull case needs a sharper test: can ${metrics.ticker} keep revision momentum near ${metrics.revisionUpPct}% without giving back gross margin?`,
-      `@You fair. If this debate is going to earn attention, my claim has to be falsifiable: revisions flattening would make me reduce conviction fast.`,
-      `@You different angle from Skeptic: optionality is not magic. It has to show up as operating leverage, or the multiple is doing too much work.`
+      `@You I'll jump in. Using the ${snapshot} snapshot, the bull case should be tested against revenue growth ${formatPercent(stats.revenueGrowth)} and gross margin ${formatPercent(stats.grossMargins)}.`,
+      `@You fair. If this debate is going to earn attention, my claim has to be falsifiable: future snapshots need improving fundamentals, not just a higher tape.`,
+      `@You different angle from Skeptic: optionality is not magic. It has to show up as operating leverage or cash economics in the sourced data.`
     ],
     yara: [
-      `@You I agree the room should not loop. I want the discussion centered on cash conversion, working capital, and whether revenue quality is as clean as the headline growth.`,
-      `@You if the answer feels generic, the fix is sharper failure modes. For ${metrics.ticker}, I would ask what breaks first: demand, margins, or accounting quality.`,
-      `@You my contribution is simple: narrative is cheap until cash proves it. If cash flow improves, my bear case should weaken; if not, the story is carrying too much weight.`
+      `@You I agree the room should not loop. Current cash fields: free cash flow ${formatMarketCap(stats.freeCashflow)}, operating cash flow ${formatMarketCap(stats.operatingCashflow)}, debt ${formatMarketCap(stats.totalDebt)}.`,
+      `@You if the answer feels generic, the fix is sharper failure modes. For ${packet.resolvedTicker}, I would ask what breaks first: demand, margins, cash flow, or disclosure quality.`,
+      `@You my contribution is simple: narrative is cheap until cash proves it. If future snapshots show better cash conversion, my bear case should weaken.`
     ],
     kenji: [
-      `@You yes, another voice should enter. I would define a table first: realized vol ${metrics.realizedVolPct}%, implied vol ${metrics.impliedVolPct}%, estimate dispersion ${metrics.estimateDispersionPct}%, and cash conversion.`,
-      `@You the repeated answer is a routing problem. A better room needs one claim, one observable, and one conviction update from each analyst.`,
-      `@You I do not want more words; I want better measurement. Ask each analyst what number would change their mind, then track whether they actually update.`
+      `@You yes, another voice should enter. My table starts with price ${formatCurrency(packet.latestPrice, packet.currency)}, beta ${formatValue(stats.beta, 2)}, and six-month return ${packet.recentPriceContext?.periodReturnPct ?? "n/a"}%.`,
+      `@You the repeated answer is a routing problem. A better room needs one claim, one observable from the snapshot, and one conviction update from each analyst.`,
+      `@You I do not want more words; I want better measurement. Ask each analyst what number in the Data tab would change their mind, then track whether they update.`
     ],
     sofia: [
-      `@You I'll add the macro channel. Rate sensitivity is ${metrics.rateSensitivity}/100, so even a good company-level thesis can lose if discount rates reprice.`,
-      `@You the debate should separate business execution from market regime. FX exposure near ${metrics.usdExposurePct}% and customer budget cycles are not background details.`,
+      `@You I'll add the macro channel. The snapshot classifies ${packet.resolvedTicker} as ${packet.sector || "sector unavailable"} / ${packet.industry || "industry unavailable"}, so cycle risk should be framed through that business mix.`,
+      `@You the debate should separate business execution from market regime. Currency ${packet.currency || "n/a"} and market state ${packet.marketState || "n/a"} are part of that frame.`,
       `@You more analysts should join only if they widen the frame. My question is whether the cycle hits demand, financing conditions, or just valuation.`
     ],
     skeptic: [
-      `@You agreed, repeating the proxy point is not enough. The next useful question is what single datapoint would force each analyst to lower conviction.`,
-      `@You more voices can still be fake depth if everyone uses the same missing evidence. I want adversarial updating, not a chorus.`,
-      `@You the room should ask: what would prove Marcus wrong, what would prove Yara wrong, and what would make Kenji's distribution narrower?`
+      `@You agreed, repeating the proxy point is not enough. The next useful question is what single sourced datapoint would force each analyst to lower conviction.`,
+      `@You more voices can still be fake depth if everyone uses the same missing evidence. I want adversarial updating anchored to the captured snapshot.`,
+      `@You the room should ask: what would prove Marcus wrong, what would prove Yara wrong, and what would make Kenji's distribution narrower in the Data tab?`
     ]
   };
 
@@ -733,7 +859,7 @@ function buildStaticFollowUpReplies(body) {
     return staticMessage(
       bid.agentId,
       pool[variant],
-      ["follow-up bid", "shared transcript"],
+      state.researchPacket?.evidenceItems?.slice(0, 2).map((item) => item.evidenceId) || ["shared transcript"],
       bid.agentId === "marcus" ? { marcus: 3 } : bid.agentId === "yara" ? { yara: -3 } : bid.agentId === "sofia" ? { sofia: 2 } : {}
     );
   });
@@ -809,65 +935,6 @@ function applyStaticConviction(message) {
   for (const agentId of Object.keys(state.convictionHistory)) {
     state.convictionHistory[agentId].push(state.conviction[agentId]);
   }
-}
-
-function buildStaticMetrics(ticker, random) {
-  return {
-    ticker,
-    pe: Math.round(22 + random() * 66),
-    revisionUpPct: Math.round(6 + random() * 28),
-    revenueGrowthPct: Math.round(8 + random() * 46),
-    grossMarginPct: Math.round(41 + random() * 39),
-    fcfYieldPct: Number((1.2 + random() * 5.2).toFixed(1)),
-    accrualPressure: Math.round(30 + random() * 55),
-    realizedVolPct: Math.round(24 + random() * 42),
-    impliedVolPct: Math.round(21 + random() * 42),
-    estimateDispersionPct: Math.round(8 + random() * 28),
-    beta: Number((0.8 + random() * 1.6).toFixed(2)),
-    rateSensitivity: Math.round(25 + random() * 60),
-    usdExposurePct: Math.round(28 + random() * 54)
-  };
-}
-
-function buildStaticResearchPacket(ticker, metrics) {
-  return {
-    resolvedTicker: ticker,
-    displayName: `${ticker} Showcase Replay`,
-    exchange: "DEMO",
-    currency: "USD",
-    marketState: "REPLAY",
-    latestPrice: 100,
-    priceChange: 1.2,
-    marketCap: 100000000000,
-    sector: "Demo",
-    industry: "Showcase mode",
-    businessSummary: "Showcase mode demonstrates the room mechanics with a saved replay packet. Live mode researches the ticker first in a self-hosted deployment.",
-    keyStats: {
-      trailingPE: metrics.pe,
-      beta: metrics.beta,
-      revenueGrowth: metrics.revenueGrowthPct / 100,
-      grossMargins: metrics.grossMarginPct / 100
-    },
-    recentPriceContext: { periodReturnPct: 8.4, observations: ["Saved replay price context for showcase mode only."] },
-    filingOrDisclosureSummary: { available: false, summary: "Showcase replay does not fetch live filings.", recentFilings: [] },
-    evidenceItems: [
-      {
-        evidenceId: "D01",
-        sourceType: "showcase_replay",
-        sourceLabel: "Showcase replay packet",
-        sourceUrl: null,
-        timestamp: new Date().toISOString(),
-        claim: "This packet is a saved public showcase replay, not live market research.",
-        importance: 1,
-        analystRelevance: ["skeptic"]
-      }
-    ],
-    researchWarnings: ["Showcase replay is not live market research."],
-    dataCoverageScore: 0,
-    readyForDebate: true,
-    companySnapshot: "Saved showcase replay. Self-host with an OpenAI API key for live research.",
-    analystPriors: null
-  };
 }
 
 function isStaticDemoHost() {
@@ -1068,7 +1135,12 @@ function renderResearchSummary(packet) {
   const strong = document.createElement("strong");
   strong.textContent = packet.displayName || packet.resolvedTicker || "Research packet";
   const span = document.createElement("span");
-  span.textContent = [packet.exchange, packet.currency, packet.marketState].filter(Boolean).join(" · ");
+  span.textContent = [
+    packet.exchange,
+    packet.currency,
+    packet.marketState,
+    packet.dataTimestamp ? `captured ${formatTimestamp(packet.dataTimestamp)}` : null
+  ].filter(Boolean).join(" · ");
   title.append(strong, span);
 
   const snapshot = document.createElement("p");
@@ -1096,6 +1168,13 @@ function renderResearchSummary(packet) {
     warning.className = "research-warning";
     warning.textContent = warnings.slice(0, 2).join(" ");
     elements.researchSummary.append(warning);
+  }
+
+  if (packet.snapshotPolicy) {
+    const policy = document.createElement("p");
+    policy.className = "research-warning";
+    policy.textContent = packet.snapshotPolicy;
+    elements.researchSummary.append(policy);
   }
 }
 
@@ -1158,7 +1237,13 @@ function renderDataPanel(packet) {
   const heading = document.createElement("h3");
   heading.textContent = `${packet.resolvedTicker} research packet`;
   const meta = document.createElement("span");
-  meta.textContent = [packet.displayName, packet.exchange, packet.currency, `coverage ${packet.dataCoverageScore ?? 0}/100`]
+  meta.textContent = [
+    packet.displayName,
+    packet.exchange,
+    packet.currency,
+    `coverage ${packet.dataCoverageScore ?? 0}/100`,
+    packet.dataTimestamp ? `captured ${formatTimestamp(packet.dataTimestamp)}` : null
+  ]
     .filter(Boolean)
     .join(" · ");
   title.append(eyebrow, heading, meta);
@@ -1172,6 +1257,8 @@ function renderDataPanel(packet) {
     ["Price change", formatSigned(packet.priceChange)],
     ["Market cap", formatMarketCap(packet.marketCap)],
     ["Market state", packet.marketState || "n/a"],
+    ["Snapshot time", formatTimestamp(packet.dataTimestamp)],
+    ["Quote source", packet.quoteSourceLabel || "n/a"],
     ["Sector", packet.sector || "n/a"],
     ["Industry", packet.industry || "n/a"],
     ["6mo return", packet.recentPriceContext?.periodReturnPct == null ? "n/a" : `${packet.recentPriceContext.periodReturnPct}%`]
@@ -1344,28 +1431,18 @@ function renderMetrics(metrics) {
   elements.metricsGrid.innerHTML = "";
   if (!metrics) return;
 
-  const rows = metrics.resolvedTicker
-    ? [
-        ["Price", formatCurrency(metrics.latestPrice, metrics.currency)],
-        ["Change", formatSigned(metrics.priceChange)],
-        ["Market cap", formatMarketCap(metrics.marketCap)],
-        ["Coverage", `${metrics.dataCoverageScore ?? 0}/100`],
-        ["Sector", metrics.sector || "n/a"],
-        ["Industry", metrics.industry || "n/a"],
-        ["Forward P/E", formatValue(metrics.keyStats?.forwardPE, 1)],
-        ["Beta", formatValue(metrics.keyStats?.beta, 2)],
-        ["6mo return", metrics.recentPriceContext?.periodReturnPct == null ? "n/a" : `${metrics.recentPriceContext.periodReturnPct}%`]
-      ]
-    : [
-        ["P/E", metrics.pe],
-        ["Rev growth", `${metrics.revenueGrowthPct}%`],
-        ["Gross margin", `${metrics.grossMarginPct}%`],
-        ["FCF yield", `${metrics.fcfYieldPct}%`],
-        ["Realized vol", `${metrics.realizedVolPct}%`],
-        ["Implied vol", `${metrics.impliedVolPct}%`],
-        ["Beta", metrics.beta],
-        ["Rate sens.", `${metrics.rateSensitivity}/100`]
-      ];
+  const rows = [
+    ["Price", formatCurrency(metrics.latestPrice, metrics.currency)],
+    ["Change", formatSigned(metrics.priceChange)],
+    ["Market cap", formatMarketCap(metrics.marketCap)],
+    ["Captured", formatTimestamp(metrics.dataTimestamp)],
+    ["Coverage", `${metrics.dataCoverageScore ?? 0}/100`],
+    ["Sector", metrics.sector || "n/a"],
+    ["Industry", metrics.industry || "n/a"],
+    ["Forward P/E", formatValue(metrics.keyStats?.forwardPE, 1)],
+    ["Beta", formatValue(metrics.keyStats?.beta, 2)],
+    ["6mo return", metrics.recentPriceContext?.periodReturnPct == null ? "n/a" : `${metrics.recentPriceContext.periodReturnPct}%`]
+  ];
 
   for (const [label, value] of rows) {
     const cell = document.createElement("div");
@@ -1469,6 +1546,13 @@ function formatPercent(value) {
   if (!Number.isFinite(number)) return "n/a";
   const scaled = Math.abs(number) <= 2 ? number * 100 : number;
   return `${scaled.toFixed(1)}%`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "n/a";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toISOString().replace(".000Z", "Z");
 }
 
 function scrollFeed() {

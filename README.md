@@ -16,7 +16,7 @@ This is educational analysis only. It is not financial advice, not a stock recom
 
 - Real research mode is the default for self-hosted Live deployments.
 - The public UI is split into `Showcase` and `Live` tabs.
-- Showcase mode runs saved replay packets for `NVDA`, `MSFT`, `TSLA`, and `AMD` with no API key or token spend.
+- Showcase mode fetches a fresh server-side market/disclosure snapshot for `NVDA`, `MSFT`, `TSLA`, and `AMD`, records the capture time, and runs a no-token audited debate script.
 - Live mode is for self-hosted or private deployments with an OpenAI API key.
 - The room shows visible research stages before debate begins.
 - The center room includes a `Data` tab with market snapshot, key stats, disclosures, evidence cards, and the raw research packet.
@@ -71,7 +71,7 @@ export RATE_LIMIT_FOLLOWUP_MAX="60"
 
 ## Showcase mode
 
-The public hosted site defaults to Showcase mode. It demonstrates the live-room mechanics with saved replay packets without spending API tokens or accepting user API keys.
+The public hosted site defaults to Showcase mode. It fetches a current server-side Yahoo/SEC snapshot, stamps the capture time in the Data tab, and demonstrates the live-room mechanics without spending OpenAI tokens or accepting user API keys.
 
 The legacy explicit URL still works:
 
@@ -79,7 +79,7 @@ The legacy explicit URL still works:
 http://localhost:3000/?static=1
 ```
 
-Showcase mode uses `public/showcases/replays.json` and should not be confused with live research mode.
+Showcase mode uses `public/showcases/replays.json` only for supported ticker metadata and initial persona conviction. It does not store saved stock prices or fundamentals. If `/api/showcase-snapshot` cannot fetch enough data, the room refuses to show stale financial values.
 
 ## Production posture
 
@@ -90,10 +90,12 @@ Showcase mode uses `public/showcases/replays.json` and should not be confused wi
 - Follow-up bodies and per-session follow-up counts are capped to prevent accidental abuse.
 - `/api/health` exposes deployment capabilities so the UI can avoid pretending Live mode is available when no server key is configured.
 - See [SECURITY.md](SECURITY.md) before turning Live mode into a public, server-funded product.
+- See [docs/DATA_ACCURACY.md](docs/DATA_ACCURACY.md) for the no-stale-financial-data policy and audit checklist.
 
 ## API
 
 - `GET /api/health` returns `{ "ok": true, "build": ..., "capabilities": ... }` so deployment health, Render commit metadata, and hosted live-mode availability can be checked.
+- `GET /api/showcase-snapshot?ticker=TSLA` returns the audited no-token snapshot used by Showcase mode.
 - `GET /api/debate?ticker=MSFT&question=...` streams SSE events:
   - `session`
   - `research_stage`

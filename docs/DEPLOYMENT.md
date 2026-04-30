@@ -12,13 +12,13 @@ The public site can run without secrets:
 https://the-floor.onrender.com/
 ```
 
-Showcase mode loads saved replay packets from:
+Showcase mode loads ticker metadata from:
 
 ```text
 public/showcases/replays.json
 ```
 
-It does not spend OpenAI tokens, does not fetch live market data, and does not collect visitor API keys.
+It does not spend OpenAI tokens and does not collect visitor API keys. It does fetch a server-side market/disclosure snapshot when playback starts so the Data tab does not show stale saved prices.
 
 ### Self-Hosted Live
 

@@ -20,6 +20,10 @@ export const ResearchPacketSchema = z.object({
   exchange: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
   marketState: z.string().optional().nullable(),
+  dataTimestamp: z.string().optional().nullable(),
+  quoteSourceLabel: z.string().optional().nullable(),
+  quoteSourceUrl: z.string().url().optional().nullable(),
+  snapshotPolicy: z.string().optional().nullable(),
   latestPrice: z.number().optional().nullable(),
   priceChange: z.number().optional().nullable(),
   marketCap: z.number().optional().nullable(),
@@ -140,4 +144,3 @@ export const FollowUpPlanSchema = z.object({
     rationaleTag: z.string().min(1)
   })).min(1).max(3)
 });
-

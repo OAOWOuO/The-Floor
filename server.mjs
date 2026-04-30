@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { handleDebate } from "./src/routes/debate-route.mjs";
 import { handleFollowUp } from "./src/routes/followup-route.mjs";
 import { handleHealth } from "./src/routes/health-route.mjs";
+import { handleShowcaseSnapshot } from "./src/routes/showcase-route.mjs";
 import { securityHeaders, sendJson } from "./src/utils/http.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/debate") {
       await handleDebate(request, response, url, { debateRuntimeMs });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/showcase-snapshot") {
+      await handleShowcaseSnapshot(request, response, url);
       return;
     }
 

@@ -10,6 +10,7 @@ export function handleHealth(_request, response) {
     build: getBuildInfo(),
     capabilities: {
       showcaseReplay: true,
+      showcaseLiveSnapshot: true,
       liveResearch: Boolean(process.env.OPENAI_API_KEY),
       acceptsBrowserApiKeys: false,
       selfHostRecommended: !process.env.OPENAI_API_KEY,

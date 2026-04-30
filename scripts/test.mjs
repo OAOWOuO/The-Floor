@@ -5,6 +5,7 @@ import { resolveTicker } from "../src/services/ticker-resolver.mjs";
 import { fetchMarketData } from "../src/services/market-data-service.mjs";
 import { fetchDisclosureData } from "../src/services/disclosure-service.mjs";
 import { buildResearchPacket } from "../src/services/research-packet-service.mjs";
+import { buildShowcaseSnapshot } from "../src/services/showcase-snapshot-service.mjs";
 import { createConvictionState, applyConvictionDelta } from "../src/services/conviction-service.mjs";
 import { synthesizeResearch } from "../src/services/synthesis-service.mjs";
 import { AppError } from "../src/utils/errors.mjs";
@@ -32,6 +33,8 @@ const packet = buildResearchPacket({ resolution, marketData, disclosureData });
 assert.equal(packet.readyForDebate, true);
 assert.ok(packet.evidenceItems.length >= 5);
 assert.ok(packet.latestPrice > 0);
+assert.ok(packet.dataTimestamp);
+assert.ok(packet.quoteSourceLabel);
 assert.ok(packet.dataCoverageScore >= 80);
 assert.equal(packet.keyStats.secFiscalYear, 2025);
 assert.equal(packet.keyStats.secFiscalPeriod, "FY");
@@ -70,16 +73,23 @@ const synthesis = await synthesizeResearch({ researchPacket: packet, question: "
 assert.ok(synthesis.company_snapshot.includes("MSFT"));
 assert.notEqual(synthesis.initial_conviction_scores.marcus, synthesis.initial_conviction_scores.yara);
 
+const showcase = await buildShowcaseSnapshot({ ticker: "MSFT" });
+assert.equal(showcase.mode, "showcase_snapshot");
+assert.equal(showcase.researchPacket.resolvedTicker, "MSFT");
+assert.ok(showcase.researchPacket.latestPrice > 0);
+assert.ok(showcase.researchPacket.dataTimestamp);
+assert.ok(showcase.researchPacket.snapshotPolicy.includes("Captured"));
+
 const replayFile = JSON.parse(await readFile("public/showcases/replays.json", "utf8"));
 for (const ticker of ["NVDA", "MSFT", "TSLA", "AMD"]) {
   const replay = replayFile.replays?.[ticker];
   assert.ok(replay, `Missing showcase replay for ${ticker}`);
-  assert.equal(replay.researchPacket.resolvedTicker, ticker);
-  assert.equal(replay.researchPacket.readyForDebate, true);
-  assert.ok(replay.researchPacket.evidenceItems.length >= 4);
-  assert.ok(replay.turns.length >= 7);
-  assert.ok(replay.moderator.body.includes("No recommendation"));
+  assert.ok(replay.initialConviction, `Missing initial conviction for ${ticker}`);
+  assert.equal(replay.metrics, undefined, `Showcase replay must not store stale metrics for ${ticker}`);
+  assert.equal(replay.researchPacket, undefined, `Showcase replay must not store stale research packet for ${ticker}`);
+  assert.equal(replay.turns, undefined, `Showcase replay must not store scripted financial turns for ${ticker}`);
 }
+assert.ok(replayFile.sourcePolicy.includes("contains no stock prices"));
 
 process.env.OPENAI_MOCK = "";
 delete process.env.OPENAI_API_KEY;

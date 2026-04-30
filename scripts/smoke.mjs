@@ -86,6 +86,19 @@ async function runResearchFlow(baseUrl) {
   if (healthBody.capabilities?.acceptsBrowserApiKeys !== false) {
     throw new Error("Health response must disclose that browser API keys are not accepted.");
   }
+  if (healthBody.capabilities?.showcaseLiveSnapshot !== true) {
+    throw new Error("Health response must disclose showcase live snapshots.");
+  }
+
+  const showcaseSnapshot = await fetch(`${baseUrl}/api/showcase-snapshot?ticker=MSFT`);
+  const showcaseBody = await showcaseSnapshot.json().catch(() => ({}));
+  if (!showcaseSnapshot.ok) throw new Error(`Showcase snapshot failed: ${showcaseSnapshot.status}`);
+  if (showcaseBody.researchPacket?.resolvedTicker !== "MSFT") {
+    throw new Error("Showcase snapshot did not resolve MSFT.");
+  }
+  if (!showcaseBody.researchPacket?.dataTimestamp || !showcaseBody.researchPacket?.quoteSourceLabel) {
+    throw new Error("Showcase snapshot missing timestamp or quote source.");
+  }
 
   const events = await readSse(`${baseUrl}/api/debate?ticker=MSFT&question=smoke`);
   const names = events.map((event) => event.event);
