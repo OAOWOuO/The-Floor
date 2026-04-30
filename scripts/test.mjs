@@ -12,6 +12,7 @@ import { synthesizeResearch } from "../src/services/synthesis-service.mjs";
 import { AppError } from "../src/utils/errors.mjs";
 import { clientKey, createRateLimiter } from "../src/utils/rate-limit.mjs";
 import { toNumber } from "../src/utils/math.mjs";
+import { sendJson } from "../src/utils/http.mjs";
 
 const originalFixture = process.env.THE_FLOOR_FIXTURE_MODE;
 const originalMock = process.env.OPENAI_MOCK;
@@ -29,6 +30,24 @@ assert.equal(toNumber(null), null);
 assert.equal(toNumber(undefined), null);
 assert.equal(toNumber(""), null);
 assert.equal(toNumber(0), 0);
+
+let jsonHeaders;
+let jsonBody;
+sendJson(
+  {
+    writeHead(_statusCode, headers) {
+      jsonHeaders = headers;
+    },
+    end(body) {
+      jsonBody = body;
+    }
+  },
+  200,
+  { ok: true }
+);
+assert.equal(jsonHeaders["Cache-Control"], "no-store, max-age=0");
+assert.equal(jsonHeaders.Pragma, "no-cache");
+assert.equal(JSON.parse(jsonBody).ok, true);
 
 const resolution = await resolveTicker("MSFT");
 assert.equal(resolution.resolvedTicker, "MSFT");

@@ -130,7 +130,7 @@ function setExperienceMode(mode) {
 
 async function refreshHostedStatus() {
   try {
-    const response = await fetch("/api/health");
+    const response = await fetch("/api/health", { cache: "no-store" });
     const payload = await response.json();
     state.serverCapabilities = payload.capabilities || {};
     renderHostedStatus(payload);
@@ -501,7 +501,11 @@ async function loadShowcaseReplay(ticker) {
 }
 
 async function loadShowcaseSnapshot(ticker) {
-  const response = await fetch(`/api/showcase-snapshot?ticker=${encodeURIComponent(ticker)}`);
+  const params = new URLSearchParams({
+    ticker,
+    snapshot: Date.now().toString()
+  });
+  const response = await fetch(`/api/showcase-snapshot?${params.toString()}`, { cache: "no-store" });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = payload?.error?.message || `Could not fetch showcase data for ${ticker}.`;

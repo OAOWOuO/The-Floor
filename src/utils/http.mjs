@@ -23,7 +23,15 @@ export function securityHeaders(extra = {}) {
 }
 
 export function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, securityHeaders({ "Content-Type": "application/json; charset=utf-8" }));
+  response.writeHead(
+    statusCode,
+    securityHeaders({
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store, max-age=0",
+      Pragma: "no-cache",
+      Expires: "0"
+    })
+  );
   response.end(JSON.stringify(payload));
 }
 

@@ -36,6 +36,7 @@ Provider behavior must be explicit:
 - SEC companyfacts can enrich annual financial statement values and shares outstanding, but the UI must distinguish SEC fields from Yahoo fields.
 - `null`, `undefined`, and empty provider fields must render as `n/a`, never as `0`.
 - Market cap may be derived only when a current quote and SEC shares outstanding are both available; the warning list must say it was derived.
+- JSON research endpoints must send `Cache-Control: no-store`, and the showcase client must request a new snapshot on every Play action.
 
 ## Live Mode
 
