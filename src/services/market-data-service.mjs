@@ -21,31 +21,36 @@ export async function fetchMarketData(resolution) {
 
   const symbol = resolution.resolvedTicker;
   const warnings = [];
-  const [quoteResult, summary, chart, fallbackQuote] = await Promise.all([
+  const [quoteResult, summary, chart, nasdaqFallback, stooqFallback] = await Promise.all([
     fetchQuote(symbol),
     fetchQuoteSummary(symbol),
     fetchChart(symbol),
+    fetchNasdaqQuote(symbol),
     fetchStooqQuote(symbol)
   ]);
+  const fallbackQuote = nasdaqFallback.quote || stooqFallback.quote;
+  const fallbackProfile = nasdaqFallback.profile || null;
 
   if (quoteResult.warning) warnings.push(quoteResult.warning);
-  if (!quoteResult.quote && fallbackQuote.quote && fallbackQuote.warning) warnings.push(fallbackQuote.warning);
+  if (!quoteResult.quote && nasdaqFallback.warning) warnings.push(nasdaqFallback.warning);
+  if (!quoteResult.quote && !nasdaqFallback.quote && stooqFallback.warning) warnings.push(stooqFallback.warning);
   if (!Object.keys(summary || {}).length) {
-    warnings.push("Yahoo Finance quoteSummary unavailable; profile, valuation, and key statistics may be incomplete.");
+    warnings.push("Yahoo Finance quoteSummary unavailable; Yahoo valuation statistics may be incomplete.");
   }
 
-  if (!hasUsableQuote(quoteResult.quote, summary, chart, fallbackQuote.quote)) {
+  if (!hasUsableQuote(quoteResult.quote, summary, chart, fallbackQuote)) {
     throw new AppError("market_data_provider_failed", `Could not fetch current quote for ${symbol}.`, 502, {
       reason:
-        [quoteResult.warning, fallbackQuote.warning].filter(Boolean).join(" ") ||
+        [quoteResult.warning, nasdaqFallback.warning, stooqFallback.warning].filter(Boolean).join(" ") ||
         "Yahoo Finance did not return usable quote or price summary data."
     });
   }
-  const quoteSource = getQuoteSource(symbol, quoteResult.quote, summary, chart, fallbackQuote.quote);
+  const quoteSource = getQuoteSource(symbol, quoteResult.quote, summary, chart, fallbackQuote);
 
   return {
     quote: quoteResult.quote || {},
-    fallbackQuote: fallbackQuote.quote || null,
+    fallbackQuote: fallbackQuote || null,
+    fallbackProfile,
     quoteSourceLabel: quoteSource?.label || null,
     quoteSourceUrl: quoteSource?.url || null,
     summary,
@@ -115,12 +120,94 @@ function getQuoteSource(symbol, quote, summary, chart, fallbackQuote) {
     return { label: "Yahoo Finance quoteSummary", url: yahooQuoteUrl(symbol) };
   }
   if (fallbackQuote?.regularMarketPrice) {
-    return { label: "Stooq delayed quote fallback", url: fallbackQuote.sourceUrl || null };
+    return { label: fallbackQuote.sourceLabel || "Fallback quote", url: fallbackQuote.sourceUrl || null };
   }
   if (chart?.meta?.regularMarketPrice || chart?.meta?.previousClose) {
     return { label: "Yahoo Finance chart metadata", url: yahooChartUrl(symbol) };
   }
   return null;
+}
+
+async function fetchNasdaqQuote(symbol) {
+  const nasdaqSymbol = toNasdaqSymbol(symbol);
+  if (!nasdaqSymbol) return { quote: null, profile: null, warning: null };
+
+  try {
+    const [info, summary] = await Promise.all([
+      fetchNasdaqJson(`https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSymbol)}/info?assetclass=stocks`),
+      fetchNasdaqJson(`https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSymbol)}/summary?assetclass=stocks`).catch(
+        () => null
+      )
+    ]);
+    const data = info?.data || {};
+    const summaryData = summary?.data?.summaryData || {};
+    const primary = data.primaryData || {};
+    const secondary = data.secondaryData || {};
+    const primaryPrice = parseProviderNumber(primary.lastSalePrice);
+    const secondaryPrice = parseProviderNumber(secondary.lastSalePrice);
+    const usePrimary = Number.isFinite(primaryPrice) && (primary.isRealTime || data.marketStatus !== "Closed");
+    const selected = usePrimary ? primary : Number.isFinite(secondaryPrice) ? secondary : primary;
+    const latestPrice = usePrimary ? primaryPrice : secondaryPrice || primaryPrice;
+    if (!Number.isFinite(latestPrice) || latestPrice <= 0) throw new Error("Nasdaq returned no usable price.");
+
+    const previousClose = parseProviderNumber(summaryData.PreviousClose?.value);
+    const netChange = parseProviderNumber(selected.netChange);
+    const marketCap = parseProviderNumber(summaryData.MarketCap?.value);
+    const volume = parseProviderNumber(selected.volume || summaryData.ShareVolume?.value);
+    const quote = {
+      symbol,
+      shortName: data.companyName || symbol,
+      longName: data.companyName || symbol,
+      fullExchangeName: summaryData.Exchange?.value || data.exchange || null,
+      exchange: summaryData.Exchange?.value || data.exchange || null,
+      currency: "USD",
+      marketState: data.marketStatus || (selected.isRealTime ? "REALTIME" : "DELAYED"),
+      regularMarketPrice: latestPrice,
+      regularMarketPreviousClose: Number.isFinite(previousClose) ? previousClose : null,
+      regularMarketChange: Number.isFinite(netChange)
+        ? netChange
+        : Number.isFinite(previousClose)
+          ? latestPrice - previousClose
+          : null,
+      regularMarketChangePercent: parseProviderPercent(selected.percentageChange),
+      regularMarketVolume: Number.isFinite(volume) ? volume : null,
+      marketCap: Number.isFinite(marketCap) ? marketCap : null,
+      regularMarketTime: parseNasdaqTimestamp(selected.lastTradeTimestamp),
+      sourceLabel: usePrimary ? "Nasdaq real-time quote fallback" : "Nasdaq delayed quote fallback",
+      sourceUrl: nasdaqQuoteUrl(nasdaqSymbol)
+    };
+    return {
+      quote,
+      profile: {
+        sector: cleanProviderText(summaryData.Sector?.value),
+        industry: cleanProviderText(summaryData.Industry?.value)
+      },
+      warning: `Yahoo Finance quote path was unavailable; used ${quote.sourceLabel} for ${symbol}.`
+    };
+  } catch (error) {
+    return {
+      quote: null,
+      profile: null,
+      warning: `Nasdaq quote fallback unavailable for ${symbol}: ${error.message}`
+    };
+  }
+}
+
+async function fetchNasdaqJson(url) {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json,text/plain,*/*",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
+    },
+    signal: AbortSignal.timeout(marketDataTimeoutMs)
+  });
+  if (!response.ok) throw new Error(`Nasdaq HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload?.status?.rCode && payload.status.rCode !== 200) {
+    throw new Error(`Nasdaq status ${payload.status.rCode}`);
+  }
+  return payload;
 }
 
 async function fetchChart(symbol) {
@@ -209,6 +296,12 @@ function toStooqSymbol(symbol) {
   return `${normalized}.us`;
 }
 
+function toNasdaqSymbol(symbol) {
+  const normalized = String(symbol || "").trim().toUpperCase();
+  if (!normalized || /[:.]/.test(normalized)) return null;
+  return normalized;
+}
+
 function stooqTimestamp(date, time) {
   if (!date || !time) return null;
   const value = new Date(`${date}T${time}Z`);
@@ -217,6 +310,10 @@ function stooqTimestamp(date, time) {
 
 function yahooQuoteUrl(symbol) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(symbol)}`;
+}
+
+function nasdaqQuoteUrl(symbol) {
+  return `https://www.nasdaq.com/market-activity/stocks/${encodeURIComponent(symbol.toLowerCase())}`;
 }
 
 function yahooChartUrl(symbol) {
@@ -230,6 +327,29 @@ function withTimeout(promise, ms, message) {
       setTimeout(() => reject(new Error(message)), ms);
     })
   ]);
+}
+
+function parseProviderNumber(value) {
+  if (value === null || value === undefined || value === "" || value === "--") return null;
+  const cleaned = String(value).replace(/[$,%\s]/g, "").replaceAll(",", "");
+  const number = Number(cleaned);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseProviderPercent(value) {
+  const number = parseProviderNumber(value);
+  return Number.isFinite(number) ? number / 100 : null;
+}
+
+function cleanProviderText(value) {
+  const text = String(value || "").trim();
+  return text && text !== "--" ? text : null;
+}
+
+function parseNasdaqTimestamp(value) {
+  if (!value) return null;
+  const parsed = new Date(`${String(value).replace(" ET", "")} GMT-0400`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 function fixtureMarketData(resolution) {

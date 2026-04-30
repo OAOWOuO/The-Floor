@@ -32,7 +32,8 @@ Quotes may be delayed by the upstream provider. If the provider cannot return a 
 Provider behavior must be explicit:
 
 - Yahoo Finance quote and quoteSummary are preferred when available.
-- If Yahoo quote is unavailable or rate-limited, Stooq delayed quote may be used and must be labeled as such.
+- If Yahoo quote is unavailable or rate-limited, Nasdaq quote/profile data is the first fallback for common US equities and must be labeled as such.
+- If Nasdaq is unavailable, Stooq delayed quote may be used and must be labeled as such.
 - SEC companyfacts can enrich annual financial statement values and shares outstanding, but the UI must distinguish SEC fields from Yahoo fields.
 - `null`, `undefined`, and empty provider fields must render as `n/a`, never as `0`.
 - Market cap may be derived only when a current quote and SEC shares outstanding are both available; the warning list must say it was derived.

@@ -4,7 +4,7 @@ import { round, toNumber } from "../utils/math.mjs";
 export function buildResearchPacket({ resolution, marketData, disclosureData }) {
   const quote = marketData?.quote || {};
   const summary = marketData?.summary || {};
-  const profile = summary.assetProfile || summary.summaryProfile || {};
+  const profile = firstObject(summary.assetProfile, summary.summaryProfile, marketData?.fallbackProfile) || {};
   const price = summary.price || {};
   const fallbackQuote = marketData?.fallbackQuote || {};
   const chartMeta = marketData?.chart?.meta || {};
@@ -48,7 +48,15 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     researchWarnings.push("Market cap was derived from latest quote multiplied by SEC shares outstanding.");
   }
   const displayName =
-    firstString(quote.longName, quote.shortName, price.longName, price.shortName, resolution.displayName) ||
+    firstString(
+      quote.longName,
+      quote.shortName,
+      fallbackQuote.longName,
+      fallbackQuote.shortName,
+      price.longName,
+      price.shortName,
+      resolution.displayName
+    ) ||
     resolution.resolvedTicker;
   const businessSummary = firstString(profile.longBusinessSummary, profile.longBusinessSummary?.fmt);
   const currency = firstString(
@@ -231,7 +239,14 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
   return ResearchPacketSchema.parse({
     resolvedTicker: resolution.resolvedTicker,
     displayName,
-    exchange: quote.fullExchangeName || quote.exchange || price.exchangeName || resolution.exchange || null,
+    exchange:
+      quote.fullExchangeName ||
+      quote.exchange ||
+      fallbackQuote.fullExchangeName ||
+      fallbackQuote.exchange ||
+      price.exchangeName ||
+      resolution.exchange ||
+      null,
     currency: currency || null,
     marketState: marketState || null,
     dataTimestamp: marketData?.fetchedAt || null,
@@ -334,6 +349,13 @@ function firstNumber(...values) {
 function firstString(...values) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function firstObject(...values) {
+  for (const value of values) {
+    if (value && typeof value === "object" && Object.keys(value).length) return value;
   }
   return null;
 }
