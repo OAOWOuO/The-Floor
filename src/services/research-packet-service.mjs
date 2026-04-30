@@ -44,7 +44,13 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     fallbackQuote.marketCap,
     latestPrice !== null && secSharesOutstanding !== null ? latestPrice * secSharesOutstanding : null
   );
-  if (quote.marketCap == null && price.marketCap == null && marketCap !== null && secSharesOutstanding !== null) {
+  if (
+    quote.marketCap == null &&
+    price.marketCap == null &&
+    fallbackQuote.marketCap == null &&
+    marketCap !== null &&
+    secSharesOutstanding !== null
+  ) {
     researchWarnings.push("Market cap was derived from latest quote multiplied by SEC shares outstanding.");
   }
   const displayName =

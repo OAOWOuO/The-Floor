@@ -154,10 +154,11 @@ async function fetchNasdaqQuote(symbol) {
     const netChange = parseProviderNumber(selected.netChange);
     const marketCap = parseProviderNumber(summaryData.MarketCap?.value);
     const volume = parseProviderNumber(selected.volume || summaryData.ShareVolume?.value);
+    const companyName = cleanNasdaqCompanyName(data.companyName || symbol);
     const quote = {
       symbol,
-      shortName: data.companyName || symbol,
-      longName: data.companyName || symbol,
+      shortName: companyName,
+      longName: companyName,
       fullExchangeName: summaryData.Exchange?.value || data.exchange || null,
       exchange: summaryData.Exchange?.value || data.exchange || null,
       currency: "USD",
@@ -344,6 +345,15 @@ function parseProviderPercent(value) {
 function cleanProviderText(value) {
   const text = String(value || "").trim();
   return text && text !== "--" ? text : null;
+}
+
+function cleanNasdaqCompanyName(value) {
+  return (
+    cleanProviderText(value)
+      ?.replace(/\s+Common Stock$/i, "")
+      .replace(/\s+Ordinary Shares$/i, "")
+      .trim() || null
+  );
 }
 
 function parseNasdaqTimestamp(value) {
