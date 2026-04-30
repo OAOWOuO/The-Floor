@@ -69,7 +69,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
     marketData?.quoteSourceLabel || "Yahoo Finance market data",
     `${resolution.resolvedTicker} last traded around ${formatPrice(latestPrice, currency)} with market cap ${formatLargeNumber(marketCap)} and market state ${marketState || "unknown"}.`,
     9,
-    ["kenji", "marcus", "yara"],
+    ["kenji", "marcus", "yara", "omar"],
     marketData?.quoteSourceUrl || yahooQuoteUrl(resolution.resolvedTicker)
   );
 
@@ -79,7 +79,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
       "Yahoo Finance company profile",
       `${displayName} operates in ${profile.sector || "an unspecified sector"} / ${profile.industry || "an unspecified industry"}: ${trimSentence(businessSummary, 360)}`,
       8,
-      ["marcus", "yara", "sofia"],
+      ["marcus", "yara", "sofia", "lucas", "mei"],
       yahooProfileUrl(resolution.resolvedTicker)
     );
   }
@@ -109,7 +109,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
         .filter(Boolean)
         .join("; ") + ".",
       8,
-      ["marcus", "yara", "kenji"],
+      ["marcus", "yara", "kenji", "priya", "omar"],
       hasYahooFundamentals ? yahooAnalysisUrl(resolution.resolvedTicker) : secFacts.sourceUrl
     );
   }
@@ -131,7 +131,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
         .filter(Boolean)
         .join("; ") + ".",
       7,
-      ["yara", "kenji", "marcus"],
+      ["yara", "kenji", "marcus", "priya", "omar"],
       yahooKeyStatsUrl(resolution.resolvedTicker)
     );
   }
@@ -142,7 +142,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
       "Yahoo Finance six-month chart",
       chartContext.observations.join(" "),
       6,
-      ["kenji", "sofia"],
+      ["kenji", "sofia", "omar"],
       yahooChartUrl(resolution.resolvedTicker)
     );
   }
@@ -157,7 +157,7 @@ export function buildResearchPacket({ resolution, marketData, disclosureData }) 
       disclosureData.source || "Recent disclosures",
       `${disclosureData.summary}${filingLabels ? ` Recent items: ${filingLabels}.` : ""}`,
       7,
-      ["yara", "sofia", "skeptic"],
+      ["yara", "sofia", "skeptic", "priya", "lucas"],
       disclosureData.recentFilings?.[0]?.url || null
     );
   } else {

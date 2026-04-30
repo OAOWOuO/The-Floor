@@ -16,13 +16,14 @@ export async function generateDebatePlan({ researchPacket, synthesis, question }
   const json = await createJsonResponse({
     model,
     reasoningEffort: process.env.OPENAI_DEBATE_REASONING || "low",
-    maxOutputTokens: 3600,
+    maxOutputTokens: 4800,
     schema: DebatePlanSchema,
     schemaName: "debate_plan",
     instructions: [
       "You are The Floor debate orchestrator.",
       "Generate a 10 to 14 turn live group chat debate from the research synthesis and evidence packet.",
-      "Use distinct voices for Marcus, Yara, Kenji, Sofia, and The Skeptic.",
+      "Use distinct voices across the expanded desk: Marcus, Yara, Kenji, Sofia, Priya, Lucas, Mei, Omar, and The Skeptic.",
+      "Use at least seven distinct speakers when possible, including at least two specialist analysts from Priya, Lucas, Mei, and Omar.",
       "No speaker may talk twice in a row. Each substantive turn cites at least one evidenceId unless explicitly attacking missing evidence.",
       "Every turn must include convictionDeltaByAgent with small deltas for one or more analysts.",
       "No buy/sell/hold recommendations, target prices, personalized advice, or fabricated evidence.",
@@ -200,6 +201,17 @@ function mockDebatePlan(packet, synthesis) {
       },
       {
         turnNumber: 4,
+        speakerId: "priya",
+        targetId: "yara",
+        speakingIntent: "quantify",
+        message: `Quality of earnings needs its own lane. I would not call the accounting clean or dirty from summary fields alone, but cash conversion, margins, and disclosures define the burden of proof.`,
+        citedEvidenceIds: [e(2), e(5)],
+        convictionDeltaByAgent: { priya: -2, yara: -1, marcus: -1 },
+        rationaleTag: "accounting quality burden added",
+        shouldTriggerSkepticWeighting: false
+      },
+      {
+        turnNumber: 5,
         speakerId: "sofia",
         targetId: "kenji",
         speakingIntent: "contextualize",
@@ -210,18 +222,51 @@ function mockDebatePlan(packet, synthesis) {
         shouldTriggerSkepticWeighting: false
       },
       {
-        turnNumber: 5,
+        turnNumber: 6,
+        speakerId: "mei",
+        targetId: "marcus",
+        speakingIntent: "reframe",
+        message: `Demand narratives still have to pass an operations check. The packet gives profile and price evidence; it does not automatically give supplier capacity, lead times, inventory turns, or unit availability.`,
+        citedEvidenceIds: [e(1), e(4)],
+        convictionDeltaByAgent: { mei: 2, marcus: -1, skeptic: 1 },
+        rationaleTag: "supply-chain evidence gap named",
+        shouldTriggerSkepticWeighting: false
+      },
+      {
+        turnNumber: 7,
+        speakerId: "lucas",
+        targetId: "sofia",
+        speakingIntent: "contextualize",
+        message: `Policy risk is not a vibe. If disclosures are thin, we label that limitation. If disclosures are present, we separate actual filed risks from generic antitrust or export-control anxiety.`,
+        citedEvidenceIds: [e(1), e(5)],
+        convictionDeltaByAgent: { lucas: -1, sofia: 1 },
+        rationaleTag: "regulatory evidence separated",
+        shouldTriggerSkepticWeighting: false
+      },
+      {
+        turnNumber: 8,
+        speakerId: "omar",
+        targetId: "yara",
+        speakingIntent: "attack",
+        message: `I care less about the story than the funding window. If cash flow weakens while leverage or beta is elevated, equity optionality can vanish before the narrative gets disproven.`,
+        citedEvidenceIds: [e(2), e(3), e(4)],
+        convictionDeltaByAgent: { omar: -3, yara: 1, marcus: -1 },
+        rationaleTag: "liquidity risk added",
+        shouldTriggerSkepticWeighting: false
+      },
+      {
+        turnNumber: 9,
         speakerId: "skeptic",
         targetId: null,
         speakingIntent: "challenge_assumption",
         message: `Everyone is sliding between proxies and direct evidence. ${synthesis.skeptic_questions[0] || "Which claim is direct and which is inferred?"}`,
         citedEvidenceIds: [e(0)],
-        convictionDeltaByAgent: { marcus: -3, yara: 1, sofia: -2 },
+        convictionDeltaByAgent: { marcus: -3, yara: 1, sofia: -2, priya: 1, mei: 1, skeptic: 1 },
         rationaleTag: "assumption challenged",
         shouldTriggerSkepticWeighting: true
       },
       {
-        turnNumber: 6,
+        turnNumber: 10,
         speakerId: "marcus",
         targetId: "skeptic",
         speakingIntent: "defend",
@@ -232,7 +277,7 @@ function mockDebatePlan(packet, synthesis) {
         shouldTriggerSkepticWeighting: false
       },
       {
-        turnNumber: 7,
+        turnNumber: 11,
         speakerId: "yara",
         targetId: "marcus",
         speakingIntent: "attack",
@@ -243,18 +288,18 @@ function mockDebatePlan(packet, synthesis) {
         shouldTriggerSkepticWeighting: false
       },
       {
-        turnNumber: 8,
+        turnNumber: 12,
         speakerId: "kenji",
         targetId: "yara",
         speakingIntent: "reframe",
-        message: `I would turn that into a scoreboard: growth, margin, cash conversion, price distribution, and disclosure quality. Each analyst has to update when a row moves.`,
+        message: `I would turn that into a scoreboard: growth, margin, cash conversion, price distribution, disclosure quality, regulatory constraint, supply constraint, and liquidity risk. Each analyst has to update when a row moves.`,
         citedEvidenceIds: [e(2), e(3), e(4)],
-        convictionDeltaByAgent: { kenji: 2, skeptic: 1 },
+        convictionDeltaByAgent: { kenji: 2, priya: 1, lucas: 1, mei: 1, omar: 1, skeptic: 1 },
         rationaleTag: "measurement discipline added",
         shouldTriggerSkepticWeighting: false
       },
       {
-        turnNumber: 9,
+        turnNumber: 13,
         speakerId: "sofia",
         targetId: null,
         speakingIntent: "contextualize",
@@ -265,13 +310,13 @@ function mockDebatePlan(packet, synthesis) {
         shouldTriggerSkepticWeighting: false
       },
       {
-        turnNumber: 10,
+        turnNumber: 14,
         speakerId: "skeptic",
         targetId: null,
         speakingIntent: "challenge_assumption",
-        message: `The unresolved issue is not who sounds smarter. It is what evidence would reverse them. Without that, conviction is branding.`,
+        message: `The unresolved issue is not who sounds smarter or who added the most categories. It is what evidence would reverse them. Without that, conviction is branding.`,
         citedEvidenceIds: [e(0)],
-        convictionDeltaByAgent: { marcus: -2, yara: 1, sofia: -1, skeptic: 1 },
+        convictionDeltaByAgent: { marcus: -2, yara: 1, sofia: -1, priya: 1, lucas: 1, mei: 1, omar: 1, skeptic: 1 },
         rationaleTag: "falsifiability demanded",
         shouldTriggerSkepticWeighting: true
       }

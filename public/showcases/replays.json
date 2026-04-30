@@ -4,19 +4,19 @@
   "supportedTickers": ["NVDA", "MSFT", "TSLA", "AMD"],
   "replays": {
     "NVDA": {
-      "initialConviction": { "marcus": 42, "yara": -22, "kenji": 8, "sofia": 4, "skeptic": 0 },
+      "initialConviction": { "marcus": 42, "yara": -22, "kenji": 8, "priya": -6, "mei": 10, "sofia": 4, "lucas": -8, "omar": -4, "skeptic": 0 },
       "focus": "Accelerated computing demand, operating leverage, export controls, customer concentration, and whether capex is direct demand evidence."
     },
     "MSFT": {
-      "initialConviction": { "marcus": 26, "yara": -12, "kenji": 6, "sofia": 8, "skeptic": 0 },
+      "initialConviction": { "marcus": 26, "yara": -12, "kenji": 6, "priya": 6, "mei": 2, "sofia": 8, "lucas": -6, "omar": 4, "skeptic": 0 },
       "focus": "Cloud and enterprise distribution, AI capex productivity, cash generation, margin durability, and rate sensitivity."
     },
     "TSLA": {
-      "initialConviction": { "marcus": 18, "yara": -38, "kenji": -4, "sofia": -12, "skeptic": 0 },
+      "initialConviction": { "marcus": 18, "yara": -38, "kenji": -4, "priya": -14, "mei": -10, "sofia": -12, "lucas": -8, "omar": -12, "skeptic": 0 },
       "focus": "EV margins, autonomy optionality, consumer credit, high-beta distribution risk, and whether optionality has measured monetization."
     },
     "AMD": {
-      "initialConviction": { "marcus": 30, "yara": -20, "kenji": 4, "sofia": 2, "skeptic": 0 },
+      "initialConviction": { "marcus": 30, "yara": -20, "kenji": 4, "priya": -4, "mei": 8, "sofia": 2, "lucas": -4, "omar": -3, "skeptic": 0 },
       "focus": "AI accelerator share gains, margin scale, competitive pressure, hyperscaler capex, and evidence quality."
     }
   }

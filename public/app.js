@@ -59,11 +59,15 @@ const elements = {
 };
 
 const fallbackAgents = [
-  { id: "marcus", name: "Marcus", title: "The Bull", short: "BULL", color: "#50e3a4" },
-  { id: "yara", name: "Yara", title: "The Bear", short: "BEAR", color: "#ff5a64" },
-  { id: "kenji", name: "Kenji", title: "The Quant", short: "QUANT", color: "#56ccf2" },
-  { id: "sofia", name: "Sofia", title: "The Macro", short: "MACRO", color: "#f2c94c" },
-  { id: "skeptic", name: "The Skeptic", title: "Assumption Hunter", short: "SKEPTIC", color: "#b58cff" }
+  { id: "marcus", name: "Marcus", title: "The Bull", short: "BULL", category: "Thesis Desk", color: "#50e3a4" },
+  { id: "yara", name: "Yara", title: "The Bear", short: "BEAR", category: "Thesis Desk", color: "#ff5a64" },
+  { id: "kenji", name: "Kenji", title: "The Quant", short: "QUANT", category: "Evidence Desk", color: "#56ccf2" },
+  { id: "priya", name: "Priya", title: "Forensic Accounting", short: "ACCT", category: "Evidence Desk", color: "#ff9f43" },
+  { id: "mei", name: "Mei", title: "Supply Chain", short: "CHAIN", category: "Evidence Desk", color: "#a3e635" },
+  { id: "sofia", name: "Sofia", title: "The Macro", short: "MACRO", category: "Risk Desk", color: "#f2c94c" },
+  { id: "lucas", name: "Lucas", title: "Regulatory Counsel", short: "REG", category: "Risk Desk", color: "#7fdbca" },
+  { id: "omar", name: "Omar", title: "Credit Desk", short: "CRDT", category: "Risk Desk", color: "#c084fc" },
+  { id: "skeptic", name: "The Skeptic", title: "Assumption Hunter", short: "SKEPTIC", category: "Epistemic Desk", color: "#b58cff" }
 ];
 
 let showcaseReplayCache = null;
@@ -110,17 +114,18 @@ elements.clearKeyButton.addEventListener("click", () => {
 });
 
 function setExperienceMode(mode) {
-  state.experienceMode = mode === "live" ? "live" : "showcase";
+  const nextMode = mode === "live" ? "live" : "showcase";
+  const modeChanged = state.experienceMode !== nextMode;
+  state.experienceMode = nextMode;
   for (const button of elements.experienceButtons) {
     button.classList.toggle("active", button.dataset.experienceMode === state.experienceMode);
   }
   elements.showcasePanel.hidden = state.experienceMode !== "showcase";
   elements.livePanel.hidden = state.experienceMode !== "live";
   elements.begin.textContent = state.experienceMode === "live" ? "Begin live research" : "Play showcase";
-  elements.roomTitle.textContent =
-    state.experienceMode === "live" ? "Live research mode" : "Showcase replay ready";
-  elements.sessionChip.textContent = state.experienceMode === "live" ? "Self-host" : "Showcase";
-  setStatus(state.experienceMode === "live" ? "Live setup" : "Showcase", false);
+  if (modeChanged || !state.sessionId) {
+    resetRoomForMode(state.experienceMode);
+  }
 }
 
 async function refreshHostedStatus() {
@@ -143,6 +148,9 @@ function renderHostedStatus(payload) {
   elements.liveStatusValue.classList.toggle("positive", liveEnabled);
   elements.liveStatusValue.classList.toggle("neutral", !liveEnabled);
   if (commit) elements.liveStatusLabel.textContent = `Hosted build ${commit}`;
+  if (state.experienceMode === "live" && state.mode === "setup" && !state.sessionId) {
+    resetRoomForMode("live", { abortStatic: false });
+  }
 }
 
 function updateApiKeyHelper() {
@@ -184,16 +192,23 @@ function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
-function renderLiveUnavailable() {
-  if (state.eventSource) state.eventSource.close();
-  state.staticRunId += 1;
+function clearRoomState({ closeStream = true, abortStatic = true } = {}) {
+  if (closeStream && state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+  if (abortStatic) state.staticRunId += 1;
   state.mode = "setup";
   state.sessionId = null;
   state.complete = false;
   state.messageQueue = Promise.resolve();
+  state.staticReplay = null;
+  state.staticHistory = [];
+  state.staticFollowUpCount = 0;
   state.researchStages = new Map();
   state.researchPacket = null;
   state.evidenceMap = new Map();
+  state.activeRoomTab = "debate";
   state.lastError = null;
   state.conviction = {};
   state.convictionHistory = {};
@@ -201,7 +216,7 @@ function renderLiveUnavailable() {
   elements.researchTimeline.innerHTML = "";
   elements.researchTimeline.hidden = true;
   elements.researchSummary.innerHTML = "";
-  elements.metricsGrid.innerHTML = "";
+  renderMetrics(null);
   elements.evidenceList.innerHTML = "";
   elements.coverageChip.textContent = "No packet";
   renderDataPanel(null);
@@ -211,6 +226,42 @@ function renderLiveUnavailable() {
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
   elements.begin.disabled = false;
+}
+
+function resetRoomForMode(mode, options = {}) {
+  clearRoomState(options);
+  state.agents = fallbackAgents;
+  renderAgents();
+
+  if (mode === "live") {
+    elements.roomTitle.textContent = "Live research room";
+    elements.sessionChip.textContent = "Self-host";
+    setStatus("Live setup", false);
+    renderRoomNotice({
+      code: "LIVE",
+      name: state.serverCapabilities?.liveResearch ? "Live room ready" : "Self-host room",
+      title: state.serverCapabilities?.liveResearch ? "server key detected" : "server key required",
+      message: state.serverCapabilities?.liveResearch
+        ? "This is a separate live room. Press Begin live research to run ticker resolution, market data, synthesis, debate, and follow-up with server-side OpenAI."
+        : "This hosted demo does not collect visitor API keys. Fork or self-host, set OPENAI_API_KEY on the server, then this room becomes the live research room."
+    });
+    return;
+  }
+
+  elements.roomTitle.textContent = "Showcase room ready";
+  elements.sessionChip.textContent = "Showcase";
+  setStatus("Showcase", false);
+  renderRoomNotice({
+    code: "SHOW",
+    name: "Showcase room",
+    title: "fresh snapshot on play",
+    message:
+      "This is a separate showcase room. Press Play showcase to fetch a fresh market snapshot and run the audited no-token debate without showing the live research pipeline."
+  });
+}
+
+function renderLiveUnavailable() {
+  clearRoomState();
   elements.roomTitle.textContent = "Live research requires self-hosting";
   elements.sessionChip.textContent = "Self-host";
   setStatus("Live setup", false);
@@ -222,31 +273,7 @@ function renderLiveUnavailable() {
 }
 
 function resetRoomForFailure(status = "Failed") {
-  if (state.eventSource) state.eventSource.close();
-  state.mode = "setup";
-  state.sessionId = null;
-  state.complete = false;
-  state.messageQueue = Promise.resolve();
-  state.researchStages = new Map();
-  state.researchPacket = null;
-  state.evidenceMap = new Map();
-  state.lastError = null;
-  state.conviction = {};
-  state.convictionHistory = {};
-  elements.feed.innerHTML = "";
-  elements.researchTimeline.innerHTML = "";
-  elements.researchTimeline.hidden = true;
-  elements.researchSummary.innerHTML = "";
-  elements.metricsGrid.innerHTML = "";
-  elements.evidenceList.innerHTML = "";
-  elements.coverageChip.textContent = "No packet";
-  renderDataPanel(null);
-  renderConviction();
-  setRoomTab("debate");
-  hideTyping();
-  elements.followupInput.disabled = true;
-  elements.followupButton.disabled = true;
-  elements.begin.disabled = false;
+  clearRoomState();
   elements.roomTitle.textContent = "Could not start room";
   elements.sessionChip.textContent = "No session";
   setStatus(status, false);
@@ -259,7 +286,7 @@ function beginDebate() {
   if (state.eventSource) state.eventSource.close();
 
   if (state.experienceMode === "showcase" || isStaticDemoHost()) {
-    beginStaticDebate(ticker, question, "Showcase replay");
+    beginStaticDebate(ticker, question, "Showcase room");
     return;
   }
 
@@ -510,10 +537,12 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   state.lastError = null;
   state.conviction = {};
   state.convictionHistory = {};
+  state.agents = fallbackAgents;
+  renderAgents();
 
   elements.feed.innerHTML = "";
   elements.researchTimeline.innerHTML = "";
-  elements.researchTimeline.hidden = false;
+  elements.researchTimeline.hidden = true;
   elements.typing.hidden = true;
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
@@ -521,7 +550,6 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   elements.roomTitle.textContent = `${normalizedTicker} fetching showcase snapshot`;
   elements.sessionChip.textContent = state.sessionId.slice(0, 8);
   setStatus("Fetching market snapshot", true);
-  renderResearchTimelineForShowcase();
   renderDataPanel(null);
   setRoomTab("debate");
 
@@ -549,7 +577,7 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   state.staticReplay = replay;
   state.researchPacket = snapshot;
   state.evidenceMap = new Map((state.researchPacket.evidenceItems || []).map((item) => [item.evidenceId, item]));
-  state.conviction = replay?.initialConviction || initialConvictionFromPacket(snapshot);
+  state.conviction = initialConvictionFromPacket(snapshot, replay?.initialConviction);
   state.convictionHistory = Object.fromEntries(
     Object.keys(state.conviction).map((agentId) => [agentId, [state.conviction[agentId]]])
   );
@@ -591,33 +619,38 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   elements.followupInput.focus();
 }
 
-function renderResearchTimelineForShowcase() {
-  const capturedAt = new Date().toISOString();
-  const stages = [
-    { stage: "resolving_ticker", label: "Resolving ticker", status: "complete", timestamp: capturedAt },
-    { stage: "fetching_market_data", label: "Fetching market data", status: "active", timestamp: capturedAt },
-    { stage: "fetching_company_profile", label: "Fetching company profile and key statistics", status: "pending", timestamp: capturedAt },
-    { stage: "fetching_disclosures", label: "Fetching filings / disclosures", status: "pending", timestamp: capturedAt },
-    { stage: "building_research_packet", label: "Building audited showcase snapshot", status: "pending", timestamp: capturedAt }
-  ];
-  state.researchStages = new Map(stages.map((stage) => [stage.stage, stage]));
-  renderResearchTimeline();
-}
-
-function initialConvictionFromPacket(packet) {
+function initialConvictionFromPacket(packet, overrides = {}) {
   const stats = packet?.keyStats || {};
   const growth = Number(stats.revenueGrowth);
   const margin = Number(stats.grossMargins);
   const beta = Number(stats.beta);
   const trailingPe = Number(stats.trailingPE);
   const periodReturn = Number(packet?.recentPriceContext?.periodReturnPct);
-  return {
+  const fcf = Number(stats.freeCashflow);
+  const totalDebt = Number(stats.totalDebt);
+  const baseline = {
     marcus: clampConviction(18 + (Number.isFinite(growth) ? growth * 40 : 0) + (Number.isFinite(margin) ? margin * 12 : 0)),
     yara: clampConviction(-18 - (Number.isFinite(trailingPe) && trailingPe > 60 ? 12 : 0)),
     kenji: clampConviction(Number.isFinite(beta) ? (beta > 1.6 ? -8 : 4) : 0),
     sofia: clampConviction(Number.isFinite(periodReturn) && periodReturn < -15 ? -8 : 3),
+    priya: clampConviction((Number.isFinite(margin) && margin > 0.35 ? 5 : -2) + (Number.isFinite(fcf) && fcf > 0 ? 3 : -4)),
+    lucas: packet?.filingOrDisclosureSummary?.available ? -2 : -7,
+    mei: /technology|consumer|industrial/i.test(packet?.sector || "") ? 3 : 0,
+    omar: clampConviction(
+      Number.isFinite(totalDebt) && totalDebt > 0 && (!Number.isFinite(fcf) || fcf <= 0)
+        ? -10
+        : Number.isFinite(totalDebt) && totalDebt > 0
+          ? -4
+          : 4
+    ),
     skeptic: 0
   };
+  return Object.fromEntries(
+    fallbackAgents.map((agent) => {
+      const override = Number(overrides?.[agent.id]);
+      return [agent.id, Number.isFinite(override) ? clampConviction(override) : baseline[agent.id] || 0];
+    })
+  );
 }
 
 function buildAuditedShowcasePlan(ticker, question, packet) {
@@ -669,6 +702,13 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
       "distribution widened"
     ),
     auditedMessage(
+      "priya",
+      `Accounting desk: ${cashLine || "cash-flow fields are incomplete in this snapshot."} I am not calling the books clean or dirty from summary data alone; I am setting the burden of proof around cash conversion and disclosure support.`,
+      [ids.fundamentals, ids.disclosure],
+      { priya: -2, yara: -1, marcus: -1 },
+      "accounting quality burden added"
+    ),
+    auditedMessage(
       "sofia",
       `${packet.displayName} is classified as ${packet.sector || "sector unavailable"} / ${packet.industry || "industry unavailable"} in this snapshot. Macro framing should flow through that business mix, currency ${packet.currency || "n/a"}, and market state ${packet.marketState || "n/a"}.`,
       [ids.profile, ids.market],
@@ -676,10 +716,31 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
       "macro channel contextualized"
     ),
     auditedMessage(
+      "mei",
+      `Supply-chain desk: the packet gives profile and price context, but not supplier concentration, lead times, inventory turns, or unit availability. Any demand thesis should keep that missing operations evidence visible.`,
+      [ids.profile, ids.priceHistory],
+      { mei: 3, marcus: -1, skeptic: 1 },
+      "supply-chain evidence gap named"
+    ),
+    auditedMessage(
+      "lucas",
+      `Regulatory desk: ${packet.filingOrDisclosureSummary?.available ? "disclosures are available in the packet, so policy risk should be tied to filed language." : "disclosure enrichment is unavailable here, so I will not pretend we read legal risk that was not fetched."} Generic regulation fear is not evidence.`,
+      [ids.disclosure, ids.profile],
+      { lucas: -1, sofia: 1 },
+      "regulatory scope constrained"
+    ),
+    auditedMessage(
+      "omar",
+      `Credit desk: equity debate still has a funding channel. ${cashLine || "With incomplete cash-flow data, liquidity risk should stay open."} If leverage or refinancing pressure rises, the story gets less room for error.`,
+      [ids.fundamentals, ids.stats, ids.market],
+      { omar: -3, marcus: -1, yara: 1 },
+      "liquidity risk added"
+    ),
+    auditedMessage(
       "skeptic",
-      `Pause. The snapshot records quote, profile, stats, and disclosures, but it does not prove direct demand. I still want workload usage, retention, customer ROI, paid adoption, or unit economics before the room treats proxies as facts.`,
+      `Pause. More desks do not automatically mean more truth. The snapshot records quote, profile, stats, and disclosures, but it does not prove direct demand. I still want workload usage, retention, customer ROI, paid adoption, or unit economics before the room treats proxies as facts.`,
       [ids.market, ids.profile, ids.disclosure],
-      { marcus: -4, yara: 1, skeptic: 2 },
+      { marcus: -4, yara: 1, priya: 1, mei: 1, skeptic: 2 },
       "missing direct evidence"
     ),
     auditedMessage(
@@ -698,9 +759,9 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
     ),
     auditedMessage(
       "kenji",
-      `I would mark this as an audited showcase run, not a recommendation. The important upgrade is that every displayed number now ties back to a snapshot timestamp and source instead of a hardcoded replay value.`,
+      `I would mark this as an audited showcase run, not a recommendation. The scorecard is now wider: market, fundamentals, accounting quality, macro, regulatory scope, supply chain, and credit. Every displayed number ties back to a snapshot timestamp and source.`,
       [ids.market, ids.priceHistory],
-      { kenji: 2, skeptic: 1 },
+      { kenji: 2, priya: 1, lucas: 1, mei: 1, omar: 1, skeptic: 1 },
       "source discipline improved"
     )
   ];
@@ -715,7 +776,7 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
       body: [
         `Moderator wrap on ${ticker}:`,
         "",
-        `This showcase used a market data snapshot captured at ${captured}. The strongest bull point was evidence-based operating upside where fundamentals support it. The strongest bear point was cash-flow and direct-demand proof. Kenji kept the distribution wide. Sofia put the company back into sector, currency, and market-state context. The Skeptic forced the room to separate sourced metrics from assumptions.`,
+        `This showcase used a market data snapshot captured at ${captured}. The strongest bull point was evidence-based operating upside where fundamentals support it. The strongest bear point was cash-flow and direct-demand proof. Kenji kept the distribution wide. Priya added accounting-quality discipline, Mei named missing operations evidence, Lucas constrained regulatory claims to disclosures, Omar added funding risk, and Sofia put the company back into sector, currency, and market-state context. The Skeptic forced the room to separate sourced metrics from assumptions.`,
         "",
         "No recommendation. This is an educational showcase with a captured data snapshot, not financial advice."
       ].join("\n"),
@@ -846,10 +907,30 @@ function buildStaticFollowUpReplies(body) {
       `@You the debate should separate business execution from market regime. Currency ${packet.currency || "n/a"} and market state ${packet.marketState || "n/a"} are part of that frame.`,
       `@You more analysts should join only if they widen the frame. My question is whether the cycle hits demand, financing conditions, or just valuation.`
     ],
+    priya: [
+      `@You Priya here. I would audit cash conversion first: free cash flow ${formatMarketCap(stats.freeCashflow)}, operating cash flow ${formatMarketCap(stats.operatingCashflow)}, and margin quality ${formatPercent(stats.operatingMargins)}.`,
+      `@You the accounting lane is not vibes. I want the Data tab to show whether margins, cash flow, and disclosures support the claim or merely decorate it.`,
+      `@You if the debate feels thin, ask whether earnings quality changed. That forces the room away from pure narrative.`
+    ],
+    lucas: [
+      `@You Lucas jumping in. Regulatory risk should be tied to disclosures when available; otherwise we should label it as an open risk, not pretend it was researched.`,
+      `@You the legal frame is constraint, not drama. I care whether filed disclosures or sector policy actually change the room's assumptions.`,
+      `@You if someone says antitrust, export controls, or litigation, they need to point to an evidence chip or call the gap out clearly.`
+    ],
+    mei: [
+      `@You Mei here. Demand arguments need an operations check: capacity, supplier dependence, lead times, inventory, and unit availability. This snapshot does not magically prove those.`,
+      `@You I can add a useful lane only if we keep supply-chain evidence separate from revenue or capex proxies.`,
+      `@You if the Data tab lacks inventory or supplier evidence, that is not a failure of the UI; it is a research limitation the debate should preserve.`
+    ],
+    omar: [
+      `@You Omar from credit. I am watching total debt ${formatMarketCap(stats.totalDebt)}, cash generation, beta ${formatValue(stats.beta, 2)}, and whether liquidity gives the equity story enough room for error.`,
+      `@You funding risk matters because a good story can still get repriced when credit conditions tighten.`,
+      `@You ask what happens if refinancing becomes harder or cash conversion disappoints. That is where equity optimism usually meets the balance sheet.`
+    ],
     skeptic: [
       `@You agreed, repeating the proxy point is not enough. The next useful question is what single sourced datapoint would force each analyst to lower conviction.`,
       `@You more voices can still be fake depth if everyone uses the same missing evidence. I want adversarial updating anchored to the captured snapshot.`,
-      `@You the room should ask: what would prove Marcus wrong, what would prove Yara wrong, and what would make Kenji's distribution narrower in the Data tab?`
+      `@You the room should ask: what would prove each desk wrong, and what would make Kenji's distribution narrower in the Data tab?`
     ]
   };
 
@@ -860,7 +941,7 @@ function buildStaticFollowUpReplies(body) {
       bid.agentId,
       pool[variant],
       state.researchPacket?.evidenceItems?.slice(0, 2).map((item) => item.evidenceId) || ["shared transcript"],
-      bid.agentId === "marcus" ? { marcus: 3 } : bid.agentId === "yara" ? { yara: -3 } : bid.agentId === "sofia" ? { sofia: 2 } : {}
+      staticFollowUpEffects(bid.agentId)
     );
   });
 }
@@ -887,11 +968,15 @@ function scoreStaticFollowUpBids(body) {
     marcus: { score: 3.8, reason: "Upside case can respond." },
     yara: { score: 3.8, reason: "Bear case can sharpen quality critique." },
     kenji: { score: 3.6, reason: "Quant can define measurement." },
+    priya: { score: 3.5, reason: "Accounting desk can audit quality." },
+    mei: { score: 3.3, reason: "Supply-chain desk can test operations." },
     sofia: { score: 3.3, reason: "Macro can add context." },
+    lucas: { score: 3.2, reason: "Regulatory desk can constrain policy claims." },
+    omar: { score: 3.3, reason: "Credit desk can test liquidity risk." },
     skeptic: { score: 3.1, reason: "Skeptic can audit assumptions." }
   };
 
-  if (direct) bids[direct].score += 6.2;
+  if (direct && bids[direct]) bids[direct].score += 6.2;
   if (asksForOthers) {
     for (const agentId of Object.keys(bids)) bids[agentId].score += 2.3;
     if (lastAgent) bids[lastAgent].score -= 4.4;
@@ -900,11 +985,19 @@ function scoreStaticFollowUpBids(body) {
     bids.yara.score += 2.8;
     bids.kenji.score += 2.3;
     bids.marcus.score += 1.5;
+    bids.priya.score += 2.1;
+    bids.mei.score += 1.6;
     bids.skeptic.score -= 1.1;
   }
   if (/data|number|proof|evidence|specific|year|comp|vol|margin|table|數據|證據|哪一年|對標/i.test(body)) bids.kenji.score += 3.6;
-  if (/cash|account|fraud|short|bear|quality|現金流|會計|空頭/i.test(body)) bids.yara.score += 3.4;
+  if (/cash|account|fraud|short|bear|quality|accrual|revenue recognition|現金流|會計|空頭|收入認列/i.test(body)) {
+    bids.yara.score += 2.8;
+    bids.priya.score += 3.8;
+  }
   if (/rate|macro|policy|fx|currency|cycle|imf|政策|匯率|利率|總經/i.test(body)) bids.sofia.score += 3.4;
+  if (/regulat|legal|lawsuit|antitrust|export|policy|法規|監管|訴訟|反壟斷|出口/i.test(body)) bids.lucas.score += 3.6;
+  if (/supply|supplier|inventory|capacity|lead time|unit|供應鏈|庫存|產能|供應商/i.test(body)) bids.mei.score += 3.6;
+  if (/credit|debt|liquidity|refinanc|balance sheet|spread|leverage|債務|流動性|槓桿|資產負債/i.test(body)) bids.omar.score += 3.6;
   if (/bull|growth|revision|upside|moat|成長|上修|樂觀/i.test(body)) bids.marcus.score += 3.3;
   if (/assumption|bias|logic|why|demand|priced|consensus|skeptic|假設|邏輯|需求|共識/i.test(body)) bids.skeptic.score += 3.4;
 
@@ -919,6 +1012,21 @@ function scoreStaticFollowUpBids(body) {
     .sort((a, b) => b.score - a.score);
 }
 
+function staticFollowUpEffects(agentId) {
+  const effects = {
+    marcus: { marcus: 3 },
+    yara: { yara: -3 },
+    kenji: { kenji: 2 },
+    sofia: { sofia: 2 },
+    priya: { priya: -2, yara: -1 },
+    lucas: { lucas: -2 },
+    mei: { mei: 2, marcus: -1 },
+    omar: { omar: -2, marcus: -1 },
+    skeptic: { skeptic: 1, marcus: -1, yara: 1 }
+  };
+  return effects[agentId] || { [agentId]: 1 };
+}
+
 function applyStaticConviction(message) {
   for (const [agentId, delta] of Object.entries(message.effects || {})) {
     if (!(agentId in state.conviction)) continue;
@@ -926,7 +1034,7 @@ function applyStaticConviction(message) {
   }
 
   if (message.agentId === "skeptic") {
-    for (const agentId of ["marcus", "yara", "sofia"]) {
+    for (const agentId of ["marcus", "yara", "sofia", "priya", "lucas", "mei", "omar"]) {
       const current = state.conviction[agentId];
       state.conviction[agentId] = current > 0 ? Math.max(0, current - 2) : Math.min(0, current + 2);
     }
@@ -947,6 +1055,10 @@ function findMentionedAgent(body) {
   if (/@yara|@bear/.test(lower)) return "yara";
   if (/@kenji|@quant/.test(lower)) return "kenji";
   if (/@sofia|@macro/.test(lower)) return "sofia";
+  if (/@priya|@acct|accounting|forensic/.test(lower)) return "priya";
+  if (/@lucas|@reg|regulatory|legal/.test(lower)) return "lucas";
+  if (/@mei|@chain|supply/.test(lower)) return "mei";
+  if (/@omar|@crdt|credit/.test(lower)) return "omar";
   if (/@skeptic|the skeptic/.test(lower)) return "skeptic";
   return null;
 }
@@ -1115,6 +1227,32 @@ function renderFailure(error) {
   const body = document.createElement("div");
   body.className = "message-body";
   body.textContent = error.message || "The room could not start a real research-backed debate.";
+
+  article.append(header, body);
+  elements.feed.append(article);
+  scrollFeed();
+}
+
+function renderRoomNotice({ code, name, title, message }) {
+  const article = document.createElement("article");
+  article.className = "message moderator room-notice";
+
+  const header = document.createElement("div");
+  header.className = "message-header";
+  const deskCode = document.createElement("span");
+  deskCode.className = "message-code";
+  deskCode.textContent = code || "ROOM";
+  const deskName = document.createElement("span");
+  deskName.className = "message-name";
+  deskName.textContent = name || "Room ready";
+  const deskTitle = document.createElement("span");
+  deskTitle.className = "message-title";
+  deskTitle.textContent = title ? `(${title})` : "";
+  header.append(deskCode, deskName, deskTitle);
+
+  const body = document.createElement("div");
+  body.className = "message-body";
+  body.textContent = message;
 
   article.append(header, body);
   elements.feed.append(article);
@@ -1403,7 +1541,16 @@ function focusEvidence(evidenceId) {
 
 function renderAgents() {
   elements.agentList.innerHTML = "";
+  let currentCategory = "";
   for (const agent of state.agents) {
+    if (agent.category && agent.category !== currentCategory) {
+      currentCategory = agent.category;
+      const category = document.createElement("div");
+      category.className = "agent-category";
+      category.textContent = currentCategory;
+      elements.agentList.append(category);
+    }
+
     const row = document.createElement("div");
     row.className = "agent-row";
     row.style.color = agent.color;

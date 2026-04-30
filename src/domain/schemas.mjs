@@ -63,22 +63,14 @@ export const ResearchPacketSchema = z.object({
 });
 
 const EvidenceCitationArraySchema = z.array(z.string()).default([]);
+const analystPriorShape = Object.fromEntries(agentIds.map((agentId) => [agentId, z.string().min(1)]));
+const convictionScoreShape = Object.fromEntries(
+  agentIds.map((agentId) => [agentId, z.number().min(-100).max(100)])
+);
 
-export const AnalystPriorsSchema = z.object({
-  marcus: z.string().min(1),
-  yara: z.string().min(1),
-  kenji: z.string().min(1),
-  sofia: z.string().min(1),
-  skeptic: z.string().min(1)
-});
+export const AnalystPriorsSchema = z.object(analystPriorShape);
 
-export const ConvictionScoresSchema = z.object({
-  marcus: z.number().min(-100).max(100),
-  yara: z.number().min(-100).max(100),
-  kenji: z.number().min(-100).max(100),
-  sofia: z.number().min(-100).max(100),
-  skeptic: z.number().min(-100).max(100)
-});
+export const ConvictionScoresSchema = z.object(convictionScoreShape);
 
 export const ResearchSynthesisSchema = z.object({
   company_snapshot: z.string().min(1),

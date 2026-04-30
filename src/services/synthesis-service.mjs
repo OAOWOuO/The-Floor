@@ -1,4 +1,4 @@
-import { agents } from "../domain/agents.mjs";
+import { agents, agentIds } from "../domain/agents.mjs";
 import { ResearchSynthesisSchema } from "../domain/schemas.mjs";
 import { createJsonResponse, requireOpenAIClient } from "./openai-service.mjs";
 
@@ -12,7 +12,7 @@ export async function synthesizeResearch({ researchPacket, question }) {
   const json = await createJsonResponse({
     model,
     reasoningEffort: process.env.OPENAI_RESEARCH_REASONING || "medium",
-    maxOutputTokens: 2600,
+    maxOutputTokens: 3400,
     schema: ResearchSynthesisSchema,
     schemaName: "research_synthesis",
     instructions: [
@@ -27,7 +27,8 @@ export async function synthesizeResearch({ researchPacket, question }) {
       `User question: ${question || "none"}`,
       `Analyst personas: ${JSON.stringify(agents)}`,
       `Research packet: ${JSON.stringify(researchPacket)}`,
-      "Return one JSON object with keys: company_snapshot, bull_thesis {summary,evidenceIds}, bear_thesis {summary,evidenceIds}, quant_flags [{flag,evidenceIds}], macro_flags [{flag,evidenceIds}], skeptic_questions, key_uncertainties, analyst_priors {marcus,yara,kenji,sofia,skeptic}, initial_conviction_scores {marcus,yara,kenji,sofia,skeptic}, evidence_map, open_questions_for_debate, disallowed_claims."
+      `Return one JSON object with keys: company_snapshot, bull_thesis {summary,evidenceIds}, bear_thesis {summary,evidenceIds}, quant_flags [{flag,evidenceIds}], macro_flags [{flag,evidenceIds}], skeptic_questions, key_uncertainties, analyst_priors {${agentIds.join(",")}}, initial_conviction_scores {${agentIds.join(",")}}, evidence_map, open_questions_for_debate, disallowed_claims.`,
+      "Every analyst prior must be distinct and tied to that analyst's category. New specialist agents should add accounting, regulatory, supply-chain, and credit/liquidity constraints when evidence supports them."
     ].join("\n\n")
   });
 
@@ -46,6 +47,8 @@ function mockSynthesis(packet, question) {
   const margin = Number(packet.keyStats?.grossMargins || 0);
   const fcf = Number(packet.keyStats?.freeCashflow || 0);
   const beta = Number(packet.keyStats?.beta || 1);
+  const totalDebt = Number(packet.keyStats?.totalDebt || 0);
+  const disclosureAvailable = Boolean(packet.filingOrDisclosureSummary?.available);
   const questionFrame = question ? ` The user's frame is "${question}".` : "";
 
   return {
@@ -85,6 +88,10 @@ function mockSynthesis(packet, question) {
       yara: "Starts skeptical until cash conversion and disclosure evidence carry the narrative.",
       kenji: "Starts near neutral, demanding measured distribution and base-rate evidence.",
       sofia: "Starts modestly conditional, watching sector cycle and discount-rate transmission.",
+      priya: "Starts with an accounting-quality lens, watching cash conversion, margins, working capital proxies, and disclosure support.",
+      lucas: "Starts cautious on legal and policy risk, especially where disclosures or sector exposure create regulatory constraints.",
+      mei: "Starts operationally conditional, looking for supply capacity, inventory, and bottleneck evidence before endorsing demand narratives.",
+      omar: "Starts from liquidity and leverage, testing whether the balance sheet can absorb a harsher funding environment.",
       skeptic: "Starts neutral and will attack unsupported assumptions rather than direction."
     },
     initial_conviction_scores: {
@@ -92,6 +99,10 @@ function mockSynthesis(packet, question) {
       yara: clamp(Math.round(-12 - (fcf ? 4 : 14)), -100, 100),
       kenji: clamp(Math.round(beta > 1.25 ? -8 : 4), -100, 100),
       sofia: packet.sector === "Technology" ? 6 : 0,
+      priya: clamp(Math.round((fcf > 0 ? 6 : -10) + (margin > 0.35 ? 4 : 0)), -100, 100),
+      lucas: disclosureAvailable ? -2 : -8,
+      mei: /technology|consumer|industrial/i.test(packet.sector || "") ? 3 : 0,
+      omar: clamp(Math.round(totalDebt > 0 && fcf <= 0 ? -12 : totalDebt > 0 ? -4 : 4), -100, 100),
       skeptic: 0
     },
     evidence_map: Object.fromEntries(packet.evidenceItems.map((item) => [item.evidenceId, item.claim])),

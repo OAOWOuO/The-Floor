@@ -10,6 +10,10 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
     yara: -29,
     kenji: 0,
     sofia: 8,
+    priya: -4,
+    lucas: -2,
+    mei: 3,
+    omar: -3,
     skeptic: 0
   });
   session.researchPacket = packet;
@@ -31,6 +35,10 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
       yara: "Static demo bear prior.",
       kenji: "Static demo quant prior.",
       sofia: "Static demo macro prior.",
+      priya: "Static demo accounting-quality prior.",
+      lucas: "Static demo regulatory prior.",
+      mei: "Static demo supply-chain prior.",
+      omar: "Static demo credit/liquidity prior.",
       skeptic: "Static demo assumption audit prior."
     },
     initialConviction: convictionState.conviction,
@@ -117,7 +125,7 @@ function buildStaticPacket(ticker) {
         timestamp: new Date().toISOString(),
         claim: "This is explicit static demo mode with no financial values, not real research.",
         importance: 1,
-        analystRelevance: ["skeptic"]
+        analystRelevance: ["skeptic", "priya", "lucas", "mei", "omar"]
       }
     ],
     researchWarnings: ["Static demo mode is not market research and contains no financial data."],
@@ -148,6 +156,13 @@ function staticTurns(ticker) {
       citedEvidenceIds: ["D01"],
       convictionDeltaByAgent: { kenji: 2 },
       rationaleTag: "protocol clarified"
+    },
+    {
+      agentId: "priya",
+      body: `Accounting, regulatory, supply-chain, and credit specialists are visible in the roster, but they should stay quiet on facts this static packet does not contain.`,
+      citedEvidenceIds: ["D01"],
+      convictionDeltaByAgent: { priya: 1, lucas: 1, mei: 1, omar: 1 },
+      rationaleTag: "specialist scope clarified"
     },
     {
       agentId: "skeptic",

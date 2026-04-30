@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { sanitizeTicker } from "../src/utils/sanitize.mjs";
+import { agentIds } from "../src/domain/agents.mjs";
 import { resolveTicker } from "../src/services/ticker-resolver.mjs";
 import { fetchMarketData } from "../src/services/market-data-service.mjs";
 import { fetchDisclosureData } from "../src/services/disclosure-service.mjs";
@@ -57,6 +58,9 @@ const update = applyConvictionDelta(conviction, { marcus: 10, yara: -10, kenji: 
 assert.equal(update.conviction.marcus, 100);
 assert.equal(update.conviction.yara, -100);
 assert.equal(update.convictionHistory.kenji.length, 2);
+for (const agentId of agentIds) {
+  assert.ok(agentId in update.conviction, `Missing conviction agent ${agentId}`);
+}
 
 const mockRequest = { headers: { "x-forwarded-for": "203.0.113.10, 10.0.0.1" }, socket: {} };
 assert.equal(clientKey(mockRequest), "203.0.113.10");
@@ -72,6 +76,10 @@ assert.equal(limiter.consume(mockRequest, { now: 1200 }).remaining, 1);
 const synthesis = await synthesizeResearch({ researchPacket: packet, question: "smoke" });
 assert.ok(synthesis.company_snapshot.includes("MSFT"));
 assert.notEqual(synthesis.initial_conviction_scores.marcus, synthesis.initial_conviction_scores.yara);
+for (const agentId of agentIds) {
+  assert.ok(agentId in synthesis.analyst_priors, `Missing synthesis prior for ${agentId}`);
+  assert.ok(agentId in synthesis.initial_conviction_scores, `Missing synthesis conviction for ${agentId}`);
+}
 
 const showcase = await buildShowcaseSnapshot({ ticker: "MSFT" });
 assert.equal(showcase.mode, "showcase_snapshot");
@@ -85,6 +93,9 @@ for (const ticker of ["NVDA", "MSFT", "TSLA", "AMD"]) {
   const replay = replayFile.replays?.[ticker];
   assert.ok(replay, `Missing showcase replay for ${ticker}`);
   assert.ok(replay.initialConviction, `Missing initial conviction for ${ticker}`);
+  for (const agentId of agentIds) {
+    assert.ok(agentId in replay.initialConviction, `Missing showcase conviction ${agentId} for ${ticker}`);
+  }
   assert.equal(replay.metrics, undefined, `Showcase replay must not store stale metrics for ${ticker}`);
   assert.equal(replay.researchPacket, undefined, `Showcase replay must not store stale research packet for ${ticker}`);
   assert.equal(replay.turns, undefined, `Showcase replay must not store scripted financial turns for ${ticker}`);

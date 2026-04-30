@@ -1,6 +1,6 @@
 # The Floor
 
-Five analysts. One stock. No mercy.
+Nine analysts. One stock. No mercy.
 
 [![CI](https://github.com/OAOWOuO/The-Floor/actions/workflows/ci.yml/badge.svg)](https://github.com/OAOWOuO/The-Floor/actions/workflows/ci.yml)
 
@@ -8,7 +8,7 @@ Five analysts. One stock. No mercy.
 
 ![The Floor showcase preview](public/assets/showcase-preview.svg)
 
-The Floor is a research-first live AI trading-room debate app. A user enters a listed ticker, the server resolves it, fetches market/profile/stat/disclosure evidence, builds a normalized research packet, asks OpenAI to synthesize analyst priors, then streams a shared multi-agent debate over SSE. The analysts debate from the same evidence packet, cite source chips, and update conviction after every turn.
+The Floor is a research-first live AI trading-room debate app. A user enters a listed ticker, the server resolves it, fetches market/profile/stat/disclosure evidence, builds a normalized research packet, asks OpenAI to synthesize analyst priors, then streams a shared multi-agent debate over SSE. The expanded room has thesis, evidence, risk, and epistemic desks: bull, bear, quant, forensic accounting, supply chain, macro, regulatory, credit, and skeptic voices. The analysts debate from the same evidence packet, cite source chips, and update conviction after every turn.
 
 This is educational analysis only. It is not financial advice, not a stock recommendation system, and not a price prediction tool.
 
@@ -18,6 +18,7 @@ This is educational analysis only. It is not financial advice, not a stock recom
 - The public UI is split into `Showcase` and `Live` tabs.
 - Showcase mode fetches a fresh server-side market/disclosure snapshot for `NVDA`, `MSFT`, `TSLA`, and `AMD`, records the capture time, and runs a no-token audited debate script.
 - Live mode is for self-hosted or private deployments with an OpenAI API key.
+- Switching between Showcase and Live resets the center feed, Data tab, evidence cards, follow-up state, and conviction tracker so each mode is a separate room.
 - The room shows visible research stages before debate begins.
 - The center room includes a `Data` tab with market snapshot, key stats, disclosures, evidence cards, and the raw research packet.
 - The debate is blocked until the research packet passes the minimum evidence threshold.

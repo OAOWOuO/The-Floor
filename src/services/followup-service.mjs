@@ -91,18 +91,30 @@ export function selectAnalysts(body, transcript = []) {
     yara: 3.4,
     kenji: 3.4,
     sofia: 3,
+    priya: 3.2,
+    lucas: 3,
+    mei: 3,
+    omar: 3.1,
     skeptic: 3
   };
 
-  if (direct) scores[direct] += 8;
+  if (direct && scores[direct] != null) scores[direct] += 8;
   if (/data|number|proof|evidence|specific|table|數據|證據|哪一年|對標/i.test(body)) scores.kenji += 4;
-  if (/cash|account|fraud|short|bear|quality|現金流|會計|空頭/i.test(body)) scores.yara += 4;
+  if (/cash|account|fraud|short|bear|quality|accrual|revenue recognition|現金流|會計|空頭|收入認列/i.test(body)) {
+    scores.yara += 3;
+    scores.priya += 4;
+  }
   if (/rate|macro|policy|fx|currency|cycle|總經|匯率|利率|政策/i.test(body)) scores.sofia += 4;
+  if (/regulat|legal|lawsuit|antitrust|export|policy|litigation|法規|監管|訴訟|反壟斷|出口/i.test(body)) scores.lucas += 4;
+  if (/supply|supplier|inventory|capacity|lead time|unit|供應鏈|庫存|產能|供應商/i.test(body)) scores.mei += 4;
+  if (/credit|debt|liquidity|refinanc|balance sheet|spread|leverage|債務|流動性|槓桿|資產負債/i.test(body)) scores.omar += 4;
   if (/bull|growth|revision|upside|moat|成長|上修|樂觀/i.test(body)) scores.marcus += 4;
   if (/assumption|bias|logic|why|demand|consensus|skeptic|假設|邏輯|需求|共識/i.test(body)) scores.skeptic += 4;
   if (/same|repeat|not good|bad|generic|一樣|重複|不好|無聊|即時|沒辦法/i.test(body)) {
     scores.yara += 2.5;
     scores.kenji += 2.5;
+    scores.priya += 2;
+    scores.mei += 1.5;
     scores.skeptic -= 1.5;
   }
   if (asksOthers) {
@@ -120,14 +132,18 @@ export function selectAnalysts(body, transcript = []) {
 function repairFollowUp(json, selectedAnalysts, session) {
   const evidenceId = session.researchPacket.evidenceItems[0]?.evidenceId || "E01";
   const responses = Array.isArray(json?.responses) ? json.responses.slice(0, 3) : [];
-  const selected = Array.isArray(json?.selectedAnalysts) && json.selectedAnalysts.length ? json.selectedAnalysts : selectedAnalysts;
+  const selectedSource = Array.isArray(json?.selectedAnalysts) && json.selectedAnalysts.length
+    ? json.selectedAnalysts
+    : selectedAnalysts;
+  const selected = selectedSource.filter((agentId) => agents[agentId]).slice(0, 3);
+  const fallbackSelected = selected.length ? selected : selectedAnalysts.filter((agentId) => agents[agentId]).slice(0, 3);
 
   return {
-    selectedAnalysts: selected.slice(0, 3),
+    selectedAnalysts: fallbackSelected,
     responses: responses.length
       ? responses.map((response, index) => ({
           ...response,
-          speakerId: selected[index] || response.speakerId || selectedAnalysts[index] || "kenji",
+          speakerId: fallbackSelected[index] || (agents[response.speakerId] ? response.speakerId : null) || "kenji",
           citedEvidenceIds: response.citedEvidenceIds?.length ? response.citedEvidenceIds : [evidenceId],
           convictionDeltaByAgent: response.convictionDeltaByAgent || {},
           rationaleTag: response.rationaleTag || "follow-up evidence update"
@@ -140,13 +156,17 @@ function mockFollowUp(session, body, selectedAnalysts) {
   const packet = session.researchPacket;
   const e = (index) => packet.evidenceItems[index]?.evidenceId || packet.evidenceItems[0]?.evidenceId || "E01";
   const responses = selectedAnalysts.map((agentId) => {
-    const evidenceId = agentId === "kenji" ? e(3) : agentId === "yara" ? e(2) : agentId === "sofia" ? e(4) : e(1);
+    const evidenceId = evidenceForAgent(agentId, e);
     const responseByAgent = {
       marcus: `@You the stronger bull version has to stay tied to ${packet.resolvedTicker}'s actual evidence: growth, margin, and profile data. If those stop improving, my conviction should come down.`,
       yara: `@You I agree the room has to get sharper. My follow-up would be cash conversion and disclosure quality first, because narrative without cash is just borrowed confidence.`,
       kenji: `@You yes, more analysts can join, but only if each adds a measurement. I would anchor this on the sourced metrics and ask what number would force an update.`,
       sofia: `@You I would add the cycle channel. Even if company evidence is decent, the market can reprice patience through rates, FX, liquidity, or customer budgets.`,
-      skeptic: `@You the question I want answered is falsifiability. Which specific evidence item would make Marcus, Yara, Kenji, or Sofia admit their prior is wrong?`
+      priya: `@You I will take the accounting lane. For ${packet.resolvedTicker}, I would compare margin, operating cash flow, free cash flow, and disclosure support before trusting any clean narrative.`,
+      lucas: `@You regulatory risk needs evidence too. I would separate filed or disclosed constraints from generic policy fear, then ask whether any constraint changes the thesis.`,
+      mei: `@You from the supply-chain side, I want capacity, inventory, supplier, and lead-time evidence. If the packet lacks those, that limitation should stay visible.`,
+      omar: `@You my lens is liquidity. If leverage, refinancing conditions, or cash generation look fragile, the equity story has less room for error.`,
+      skeptic: `@You the question I want answered is falsifiability. Which specific evidence item would make each desk, including the specialists, admit their prior is wrong?`
     };
     return {
       speakerId: agentId,
@@ -165,8 +185,20 @@ function findMentionedAgent(lowerBody) {
   if (/@yara|@bear/.test(lowerBody)) return "yara";
   if (/@kenji|@quant/.test(lowerBody)) return "kenji";
   if (/@sofia|@macro/.test(lowerBody)) return "sofia";
+  if (/@priya|@acct|accounting|forensic/.test(lowerBody)) return "priya";
+  if (/@lucas|@reg|regulatory|legal/.test(lowerBody)) return "lucas";
+  if (/@mei|@chain|supply/.test(lowerBody)) return "mei";
+  if (/@omar|@crdt|credit/.test(lowerBody)) return "omar";
   if (/@skeptic|the skeptic/.test(lowerBody)) return "skeptic";
   return null;
+}
+
+function evidenceForAgent(agentId, e) {
+  if (agentId === "kenji") return e(3);
+  if (agentId === "yara" || agentId === "priya" || agentId === "omar") return e(2);
+  if (agentId === "sofia" || agentId === "mei") return e(4);
+  if (agentId === "lucas" || agentId === "skeptic") return e(5);
+  return e(1);
 }
 
 function evidenceLabels(packet, evidenceIds = []) {

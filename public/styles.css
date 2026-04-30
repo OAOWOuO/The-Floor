@@ -312,6 +312,14 @@ button:disabled {
   gap: 8px;
 }
 
+.agent-category {
+  margin-top: 8px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
 .agent-row {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
@@ -694,6 +702,10 @@ button:disabled {
 
 .failure-card {
   border-left-color: var(--red);
+}
+
+.room-notice {
+  border-left-color: var(--blue);
 }
 
 .message {

@@ -14,14 +14,18 @@ The user enters a ticker and optional context question. The center room first sh
 6. Assigning analyst priors
 7. Starting debate
 
-Only after those stages complete does the shared chat room stream analyst messages. Static demo mode exists only behind `?static=1`.
+Only after those stages complete does the shared chat room stream analyst messages. The public Showcase tab skips the live research timeline, fetches an audited market snapshot, and runs a no-token showcase room. Static API demo mode exists only behind `?static=1`.
 
 ## Agents
 
 - Marcus, The Bull: upside, operating leverage, revision momentum.
 - Yara, The Bear: cash flow, quality, incentives, downside asymmetry.
 - Kenji, The Quant: distribution, volatility, base rates, measurement.
+- Priya, Forensic Accounting: accruals, cash conversion, accounting quality, disclosure support.
+- Mei, Supply Chain: capacity, inventory, lead times, supplier dependencies.
 - Sofia, The Macro: rates, liquidity, FX, cycle transmission.
+- Lucas, Regulatory Counsel: antitrust, export controls, litigation, policy constraints.
+- Omar, Credit Desk: liquidity, leverage, refinancing, balance-sheet risk.
 - The Skeptic: assumption hunting, invalid analogy detection, missing-evidence critique.
 - Moderator: synthesizes disagreement, never recommends.
 
