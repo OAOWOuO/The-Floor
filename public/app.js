@@ -225,6 +225,7 @@ function clearRoomState({ closeStream = true, abortStatic = true } = {}) {
   hideTyping();
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
+  elements.followupInput.placeholder = "Join after the Moderator wraps. Try @Yara or @Kenji.";
   elements.begin.disabled = false;
 }
 
@@ -234,6 +235,7 @@ function resetRoomForMode(mode, options = {}) {
   renderAgents();
 
   if (mode === "live") {
+    elements.followupInput.placeholder = "Join after the Moderator wraps. Try @Yara or @Kenji.";
     elements.roomTitle.textContent = "Live research room";
     elements.sessionChip.textContent = "Self-host";
     setStatus("Live setup", false);
@@ -250,6 +252,7 @@ function resetRoomForMode(mode, options = {}) {
 
   elements.roomTitle.textContent = "Showcase room ready";
   elements.sessionChip.textContent = "Showcase";
+  elements.followupInput.placeholder = "Showcase follow-up is locked; Live chat requires self-hosting with OPENAI_API_KEY.";
   setStatus("Showcase", false);
   renderRoomNotice({
     code: "SHOW",
@@ -423,6 +426,12 @@ async function sendFollowUp() {
   const message = elements.followupInput.value.trim();
   if (!message || !state.sessionId || !state.complete) return;
 
+  if (state.mode === "static") {
+    elements.followupInput.value = "";
+    lockShowcaseFollowUp({ showNotice: true });
+    return;
+  }
+
   elements.followupInput.value = "";
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
@@ -445,11 +454,6 @@ async function sendFollowUp() {
 
   queueMessage(userMessage, false);
   setStatus("Agents reading", true);
-
-  if (state.mode === "static") {
-    await sendStaticFollowUp(message, userMessage);
-    return;
-  }
 
   try {
     const response = await fetch("/api/followup", {
@@ -550,6 +554,7 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   elements.typing.hidden = true;
   elements.followupInput.disabled = true;
   elements.followupButton.disabled = true;
+  elements.followupInput.placeholder = "Showcase follow-up is locked; Live chat requires self-hosting with OPENAI_API_KEY.";
   elements.begin.disabled = true;
   elements.roomTitle.textContent = `${normalizedTicker} fetching showcase snapshot`;
   elements.sessionChip.textContent = state.sessionId.slice(0, 8);
@@ -625,11 +630,8 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   await queueMessage(finalReview, true);
 
   state.complete = true;
-  setStatus("Follow-up open", false);
   elements.begin.disabled = false;
-  elements.followupInput.disabled = false;
-  elements.followupButton.disabled = false;
-  elements.followupInput.focus();
+  lockShowcaseFollowUp({ showNotice: true });
 }
 
 function initialConvictionFromPacket(packet, overrides = {}) {
@@ -940,6 +942,22 @@ function clampConviction(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return Math.max(-100, Math.min(100, Math.round(number)));
+}
+
+function lockShowcaseFollowUp({ showNotice = false } = {}) {
+  setStatus("Live follow-up locked", false);
+  elements.followupInput.disabled = true;
+  elements.followupButton.disabled = true;
+  elements.followupInput.placeholder = "Live follow-up requires self-hosting with server-side OPENAI_API_KEY.";
+  if (showNotice) {
+    renderRoomNotice({
+      code: "LOCK",
+      name: "Live follow-up locked",
+      title: "server key required",
+      message:
+        "Showcase is a no-token public room: it fetches a fresh data snapshot and runs the audited debate, but it does not run live AI follow-up. To ask agents follow-up questions, fork or deploy your own Render service and set OPENAI_API_KEY on the server."
+    });
+  }
 }
 
 async function sendStaticFollowUp(message) {
