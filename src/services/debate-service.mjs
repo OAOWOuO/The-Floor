@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { agents, agentIds, getAgent } from "../domain/agents.mjs";
-import { DebatePlanSchema, ModeratorSummarySchema } from "../domain/schemas.mjs";
+import { DebatePlanSchema, FinalReviewSchema, ModeratorSummarySchema } from "../domain/schemas.mjs";
 import { timestamp } from "../utils/time.mjs";
 import { createJsonResponse, requireOpenAIClient } from "./openai-service.mjs";
 
@@ -73,6 +73,42 @@ export async function generateModeratorSummary({ researchPacket, synthesis, tran
   return ModeratorSummarySchema.parse({ ...json, final_conviction_snapshot: conviction });
 }
 
+export async function generateFinalReview({ researchPacket, synthesis, transcript, moderatorSummary, conviction }) {
+  if (process.env.OPENAI_MOCK === "1") {
+    return FinalReviewSchema.parse(mockFinalReview(researchPacket, synthesis, conviction));
+  }
+
+  requireOpenAIClient();
+  const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+  const json = await createJsonResponse({
+    model,
+    reasoningEffort: "low",
+    maxOutputTokens: 1500,
+    schema: FinalReviewSchema,
+    schemaName: "final_review",
+    instructions: [
+      "You are the Final Review Officer for The Floor, like an investment committee chair.",
+      "Your job is to turn the debate into a non-advisory research direction and diligence gate.",
+      "You must not tell the user to buy, sell, hold, invest, avoid investing, or make a portfolio decision.",
+      "Use exactly one decision_direction enum value: constructive_but_conditional, balanced_watchlist, cautious_risk_first, insufficient_evidence.",
+      "The output should feel decisive about evidence quality, not personalized investment advice.",
+      "No target prices, no buy/sell/hold language, no personalized financial advice.",
+      "Return strict JSON only."
+    ].join("\n"),
+    input: [
+      `Ticker: ${researchPacket.resolvedTicker}`,
+      `Research packet: ${JSON.stringify(researchPacket)}`,
+      `Research synthesis: ${JSON.stringify(synthesis)}`,
+      `Moderator summary: ${JSON.stringify(moderatorSummary)}`,
+      `Transcript: ${JSON.stringify(transcript.map((message) => ({ speaker: message.name, body: message.body, citedEvidenceIds: message.citedEvidenceIds })))}`,
+      `Final conviction: ${JSON.stringify(conviction)}`,
+      "Return JSON with keys: decision_direction, evidence_grade, committee_verdict, primary_risk_gate, what_would_change_direction, next_diligence_steps, final_conviction_snapshot, not_financial_advice."
+    ].join("\n\n")
+  });
+
+  return FinalReviewSchema.parse({ ...json, final_conviction_snapshot: conviction });
+}
+
 export function turnToMessage(turn, researchPacket) {
   const agent = getAgent(turn.speakerId);
   const target = turn.targetId ? getAgent(turn.targetId) : null;
@@ -96,6 +132,42 @@ export function turnToMessage(turn, researchPacket) {
     speakingIntent: turn.speakingIntent,
     rationaleTag: turn.rationaleTag,
     effects: turn.convictionDeltaByAgent
+  };
+}
+
+export function finalReviewToMessage(review, researchPacket) {
+  const body = [
+    `Final Review Officer on ${researchPacket.resolvedTicker}:`,
+    "",
+    `Decision direction (non-advisory): ${directionLabel(review.decision_direction)}`,
+    `Evidence grade: ${review.evidence_grade}`,
+    `Committee verdict: ${guardRecommendationLanguage(review.committee_verdict)}`,
+    `Primary risk gate: ${guardRecommendationLanguage(review.primary_risk_gate)}`,
+    "",
+    "What would change the direction:",
+    ...(review.what_would_change_direction || []).map((item, index) => `${index + 1}. ${guardRecommendationLanguage(item)}`),
+    "",
+    "Next diligence steps:",
+    ...(review.next_diligence_steps || []).map((item, index) => `${index + 1}. ${guardRecommendationLanguage(item)}`),
+    "",
+    review.not_financial_advice || "This is a research direction, not financial advice or a buy/sell/hold call."
+  ].join("\n");
+
+  return {
+    id: crypto.randomUUID(),
+    agentId: "reviewer",
+    name: "Final Review Officer",
+    title: "IC Chair",
+    short: "IC",
+    color: "#f2c94c",
+    timestamp: timestamp(),
+    body,
+    citations: ["moderator wrap", "debate transcript", "research packet", "conviction tracker"],
+    citedEvidenceIds: researchPacket.evidenceItems.slice(0, 4).map((item) => item.evidenceId),
+    bid: null,
+    speakingIntent: "final_review",
+    rationaleTag: "committee review",
+    effects: {}
   };
 }
 
@@ -135,6 +207,24 @@ export function moderatorToMessage(summary, researchPacket) {
     rationaleTag: "moderator synthesis",
     effects: {}
   };
+}
+
+function directionLabel(direction) {
+  return {
+    constructive_but_conditional: "Constructive, but conditional on evidence improving",
+    balanced_watchlist: "Balanced watchlist: evidence mixed, monitor the gates",
+    cautious_risk_first: "Cautious, risk-first: unresolved issues dominate",
+    insufficient_evidence: "Insufficient evidence: do more diligence before forming a view"
+  }[direction] || "Balanced watchlist: evidence mixed, monitor the gates";
+}
+
+function guardRecommendationLanguage(text) {
+  return String(text || "")
+    .replace(/\b(buy|sell|hold)\b/gi, "make a portfolio call")
+    .replace(/\bshould\s+invest\b/gi, "has enough evidence for a constructive research stance")
+    .replace(/\bshould\s+not\s+invest\b/gi, "does not yet clear the evidence bar")
+    .replace(/\binvest\b/gi, "evaluate")
+    .replace(/\binvesting\b/gi, "evaluating");
 }
 
 function repairDebatePlan(json, packet) {
@@ -334,6 +424,45 @@ function mockModeratorSummary(packet, synthesis, conviction) {
     unresolved_assumptions: synthesis.skeptic_questions.slice(0, 3),
     final_conviction_snapshot: conviction,
     not_financial_advice: "This is educational analysis and a debate map, not financial advice or a recommendation."
+  };
+}
+
+function mockFinalReview(packet, synthesis, conviction) {
+  const averageConviction =
+    Object.values(conviction).reduce((sum, value) => sum + Number(value || 0), 0) / Math.max(1, Object.values(conviction).length);
+  const direction =
+    packet.dataCoverageScore < 55
+      ? "insufficient_evidence"
+      : averageConviction > 12
+        ? "constructive_but_conditional"
+        : averageConviction < -12
+          ? "cautious_risk_first"
+          : "balanced_watchlist";
+
+  return {
+    decision_direction: direction,
+    evidence_grade: packet.dataCoverageScore >= 80 ? "strong" : packet.dataCoverageScore >= 60 ? "mixed" : "weak",
+    committee_verdict:
+      direction === "constructive_but_conditional"
+        ? `The committee view is constructive only if the sourced growth, cash-flow, and disclosure evidence keep confirming ${packet.resolvedTicker}'s thesis.`
+        : direction === "cautious_risk_first"
+          ? `The committee view is risk-first because unresolved cash quality, valuation, or macro gates carry more weight than the upside narrative.`
+          : direction === "insufficient_evidence"
+            ? `The committee cannot form a durable research view because the evidence packet is not strong enough.`
+            : `The committee view is balanced: ${synthesis.bull_thesis.summary} is live, but ${synthesis.bear_thesis.summary} keeps the evidence bar high.`,
+    primary_risk_gate: synthesis.key_uncertainties?.[0] || "Whether future evidence directly confirms demand, cash conversion, and disclosure quality.",
+    what_would_change_direction: [
+      "A cleaner direct-demand indicator rather than only proxy metrics.",
+      "Sustained cash conversion and margin evidence in the next data packet.",
+      "Disclosure or policy developments that materially narrow or widen the risk case."
+    ],
+    next_diligence_steps: [
+      "Compare the Data tab metrics against the next quarterly filing.",
+      "Read the most recent 10-K or 10-Q risk factors and MD&A sections.",
+      "Ask each analyst which specific metric would force a conviction update."
+    ],
+    final_conviction_snapshot: conviction,
+    not_financial_advice: "This is a research direction for educational analysis, not financial advice or a buy/sell/hold recommendation."
   };
 }
 

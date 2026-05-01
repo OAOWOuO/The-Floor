@@ -615,6 +615,15 @@ async function beginStaticDebate(ticker, question, label = "Showcase replay") {
   hideTyping();
   state.staticHistory.push(moderator);
   await queueMessage(moderator, true);
+
+  if (runId !== state.staticRunId) return;
+  const finalReview = plan.finalReview;
+  showTyping(finalReview);
+  await delay(900);
+  hideTyping();
+  state.staticHistory.push(finalReview);
+  await queueMessage(finalReview, true);
+
   state.complete = true;
   setStatus("Follow-up open", false);
   elements.begin.disabled = false;
@@ -788,8 +797,68 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
       citations: [],
       effects: {}
     };
+  const projectedConviction = projectedShowcaseConviction(turns);
+  const averageConviction =
+    Object.values(projectedConviction).reduce((sum, value) => sum + Number(value || 0), 0) /
+    Math.max(1, Object.values(projectedConviction).length);
+  const finalReview = {
+    id: crypto.randomUUID(),
+    agentId: "reviewer",
+    name: "Final Review Officer",
+    title: "IC Chair",
+    short: "IC",
+    color: "#f2c94c",
+    timestamp: timestamp(),
+    body: [
+      `Final Review Officer on ${ticker}:`,
+      "",
+      `Decision direction (non-advisory): ${showcaseDirectionLabel(averageConviction, packet.dataCoverageScore)}`,
+      `Evidence grade: ${packet.dataCoverageScore >= 80 ? "strong" : packet.dataCoverageScore >= 60 ? "mixed" : "weak"}`,
+      `Committee verdict: The room has a research direction, not a portfolio instruction. The constructive case needs the displayed fundamentals and cash economics to keep confirming the thesis; the risk case keeps priority if direct demand, disclosure, liquidity, or valuation evidence weakens.`,
+      `Primary risk gate: ${packet.evidenceItems?.length ? "whether the next evidence packet confirms the current source-labeled snapshot." : "insufficient source evidence."}`,
+      "",
+      "What would change the direction:",
+      "1. Direct demand evidence improves or deteriorates, not just proxy metrics.",
+      "2. Cash conversion, margins, leverage, and disclosures move against the current scorecard.",
+      "3. Macro, regulatory, supply-chain, or liquidity risks become more material in filings or market data.",
+      "",
+      "Next diligence steps:",
+      "1. Open the Data tab and check every provider-labeled metric before trusting the debate.",
+      "2. Compare this snapshot with the next filing or quarterly update.",
+      "3. Ask the room which specific evidence item would force each desk to lower or raise conviction.",
+      "",
+      "This is a research direction for educational analysis, not financial advice or a buy/sell/hold recommendation."
+    ].join("\n"),
+    citedEvidenceIds: [ids.market, ids.fundamentals, ids.stats, ids.disclosure].filter(Boolean),
+    citations: [],
+    effects: {}
+  };
 
-  return { turns, moderator };
+  return { turns, moderator, finalReview };
+}
+
+function showcaseDirectionLabel(averageConviction, coverageScore) {
+  if (coverageScore < 55) return "Insufficient evidence: do more diligence before forming a view";
+  if (averageConviction > 12) return "Constructive, but conditional on evidence improving";
+  if (averageConviction < -12) return "Cautious, risk-first: unresolved issues dominate";
+  return "Balanced watchlist: evidence mixed, monitor the gates";
+}
+
+function projectedShowcaseConviction(turns) {
+  const projected = { ...(state.conviction || {}) };
+  for (const message of turns) {
+    for (const [agentId, delta] of Object.entries(message.effects || {})) {
+      if (!(agentId in projected)) continue;
+      projected[agentId] = Math.max(-100, Math.min(100, projected[agentId] + delta));
+    }
+    if (message.agentId === "skeptic") {
+      for (const agentId of ["marcus", "yara", "sofia", "priya", "lucas", "mei", "omar"]) {
+        const current = projected[agentId] || 0;
+        projected[agentId] = current > 0 ? Math.max(0, current - 2) : Math.min(0, current + 2);
+      }
+    }
+  }
+  return projected;
 }
 
 function auditedMessage(agentId, body, citedEvidenceIds, effects, rationaleTag) {
@@ -1073,6 +1142,7 @@ async function renderMessage(message, animated) {
   article.style.setProperty("--agent-color", message.color || "#50e3a4");
 
   if (message.agentId === "moderator") article.classList.add("moderator");
+  if (message.agentId === "reviewer") article.classList.add("reviewer");
   if (message.agentId === "user") article.classList.add("user");
 
   const header = document.createElement("div");

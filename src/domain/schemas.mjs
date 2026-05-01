@@ -126,6 +126,22 @@ export const ModeratorSummarySchema = z.object({
   not_financial_advice: z.string().min(1)
 });
 
+export const FinalReviewSchema = z.object({
+  decision_direction: z.enum([
+    "constructive_but_conditional",
+    "balanced_watchlist",
+    "cautious_risk_first",
+    "insufficient_evidence"
+  ]),
+  evidence_grade: z.enum(["strong", "mixed", "weak", "insufficient"]),
+  committee_verdict: z.string().min(1),
+  primary_risk_gate: z.string().min(1),
+  what_would_change_direction: z.array(z.string().min(1)).min(1).max(5),
+  next_diligence_steps: z.array(z.string().min(1)).min(1).max(5),
+  final_conviction_snapshot: ConvictionScoresSchema,
+  not_financial_advice: z.string().min(1)
+});
+
 export const FollowUpPlanSchema = z.object({
   selectedAnalysts: z.array(AgentIdSchema).min(1).max(3),
   responses: z.array(z.object({

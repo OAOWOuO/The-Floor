@@ -822,6 +822,14 @@ button:disabled {
   background: rgba(217, 225, 234, 0.08);
 }
 
+.message.reviewer {
+  border-color: rgba(242, 201, 76, 0.24);
+  border-left-color: var(--amber);
+  background:
+    linear-gradient(180deg, rgba(242, 201, 76, 0.09), rgba(0, 0, 0, 0.24)),
+    rgba(242, 201, 76, 0.035);
+}
+
 .message-header {
   display: flex;
   align-items: baseline;

@@ -87,6 +87,22 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
   };
   session.transcript.push(moderator);
   writeEvent("message", moderator);
+
+  const finalReview = {
+    id: crypto.randomUUID(),
+    agentId: "reviewer",
+    name: "Final Review Officer",
+    title: "IC Chair",
+    short: "IC",
+    color: "#f2c94c",
+    timestamp: timestamp(),
+    body: `Final Review Officer on ${session.ticker}: explicit static mode is only a product tour. Decision direction: insufficient evidence. Use Showcase for a fresh source-labeled snapshot or Live mode with a server-side OPENAI_API_KEY for real research-backed debate.\n\nThis is educational analysis, not financial advice or a buy/sell/hold recommendation.`,
+    citations: ["static demo"],
+    citedEvidenceIds: []
+  };
+  session.transcript.push(finalReview);
+  writeEvent("message", finalReview);
+
   writeEvent("complete", {
     sessionId: session.id,
     ticker: session.ticker,

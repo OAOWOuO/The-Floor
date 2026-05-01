@@ -13,6 +13,8 @@ import { buildResearchPacket, summarizeResearchPacket } from "../services/resear
 import { synthesizeResearch } from "../services/synthesis-service.mjs";
 import { createConvictionState, applyConvictionDelta } from "../services/conviction-service.mjs";
 import {
+  finalReviewToMessage,
+  generateFinalReview,
   generateDebatePlan,
   generateModeratorSummary,
   moderatorToMessage,
@@ -166,14 +168,36 @@ async function streamDebate({ session, response, writeEvent, debateRuntimeMs }) 
 
   session.moderatorSummary = summary;
   session.transcript.push(moderatorMessage);
-  session.complete = true;
   writeEvent("message", moderatorMessage);
+
+  const finalReview = await generateFinalReview({
+    researchPacket: session.researchPacket,
+    synthesis: session.synthesis,
+    transcript: session.transcript,
+    moderatorSummary: summary,
+    conviction: session.convictionState.conviction
+  });
+  const reviewMessage = finalReviewToMessage(finalReview, session.researchPacket);
+
+  writeEvent("typing", {
+    agentId: "reviewer",
+    name: "Final Review Officer",
+    title: "IC Chair"
+  });
+  await sleep(Math.min(1800, Math.max(280, perTurnMs * 0.3)));
+  if (session.closed || response.destroyed) return;
+
+  session.finalReview = finalReview;
+  session.transcript.push(reviewMessage);
+  session.complete = true;
+  writeEvent("message", reviewMessage);
   writeEvent("complete", {
     sessionId: session.id,
     ticker: session.researchPacket.resolvedTicker,
     conviction: session.convictionState.conviction,
     convictionHistory: session.convictionState.convictionHistory,
-    dataCoverageScore: session.researchPacket.dataCoverageScore
+    dataCoverageScore: session.researchPacket.dataCoverageScore,
+    finalReview
   });
 }
 

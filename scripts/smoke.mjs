@@ -107,6 +107,8 @@ async function runResearchFlow(baseUrl) {
   const session = events.find((event) => event.event === "session")?.data;
   const packet = events.find((event) => event.event === "research_packet_summary")?.data;
   const complete = events.find((event) => event.event === "complete")?.data;
+  const reviewIndex = events.findIndex((event) => event.event === "message" && event.data?.agentId === "reviewer");
+  const completeIndex = names.indexOf("complete");
   const firstMessageIndex = names.indexOf("message");
   const readyIndex = names.findIndex(
     (event, index) =>
@@ -130,6 +132,9 @@ async function runResearchFlow(baseUrl) {
   if (!packet?.readyForDebate || !packet.evidenceItems?.length) throw new Error("Missing research packet evidence.");
   if (!complete?.convictionHistory?.marcus || complete.convictionHistory.marcus.length < 2) {
     throw new Error("Conviction did not move during debate.");
+  }
+  if (reviewIndex === -1 || reviewIndex > completeIndex || !complete?.finalReview?.decision_direction) {
+    throw new Error("Final Review Officer did not complete before follow-up opened.");
   }
 
   const firstFollowUp = await postFollowUp(baseUrl, session.sessionId, "hey i dont think it is good");

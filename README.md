@@ -24,6 +24,7 @@ This is educational analysis only. It is not financial advice, not a stock recom
 - The debate is blocked until the research packet passes the minimum evidence threshold.
 - Follow-up chat reuses the same research packet, analyst priors, and transcript.
 - Conviction scores initialize from synthesis and move after every analyst turn.
+- A Final Review Officer closes the room after the Moderator with a non-advisory research direction, evidence grade, risk gate, and next diligence steps.
 
 ## Data sources
 
@@ -131,3 +132,4 @@ GitHub Actions runs these checks on pushes and pull requests.
 - Debate quality depends on `OPENAI_API_KEY` and model availability.
 - No database or authentication yet; sessions are in-memory.
 - The app avoids price targets, buy/sell/hold calls, and personalized advice by design.
+- The Final Review Officer is deliberately framed as research direction, not a portfolio recommendation.
