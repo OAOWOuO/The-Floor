@@ -1,6 +1,6 @@
 # THE FLOOR - Product Architecture
 
-The Floor is a research-first live AI trading-floor debate room. The product is not a recommendation engine. It resolves a public-market ticker, gathers a real evidence packet, and only then opens a multi-agent debate.
+The Floor is a research-first live AI trading-floor debate room. It resolves a public-market ticker, gathers a real evidence packet, opens a multi-agent debate, and closes with an IC-style action signal.
 
 ## Core Experience
 
@@ -27,7 +27,8 @@ Only after those stages complete does the shared chat room stream analyst messag
 - Lucas, Regulatory Counsel: antitrust, export controls, litigation, policy constraints.
 - Omar, Credit Desk: liquidity, leverage, refinancing, balance-sheet risk.
 - The Skeptic: assumption hunting, invalid analogy detection, missing-evidence critique.
-- Moderator: synthesizes disagreement, never recommends.
+- Moderator: synthesizes disagreement and hands the room to final review.
+- Final Review Officer: IC chair that scores the packet and produces BUY / WAIT / AVOID / REDUCE action.
 
 ## Data Pipeline
 
@@ -85,7 +86,7 @@ Conviction ranges from -100 to +100. Initial scores come from research synthesis
 
 ## Follow-Up
 
-Follow-up opens after the Moderator wrap. The follow-up route reuses:
+Follow-up opens after the Moderator wrap and Final Review Officer action signal. The follow-up route reuses:
 
 - session transcript
 - research packet
@@ -99,8 +100,7 @@ Selection logic respects @mentions, evidence/data questions, macro questions, me
 
 The product must not output:
 
-- buy/sell/hold recommendations
 - target prices
 - fair value claims
-- personalized financial advice
+- order placement language or portfolio sizing
 - fabricated evidence, filings, metrics, or sources

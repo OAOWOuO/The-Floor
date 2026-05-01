@@ -122,24 +122,22 @@ export const ModeratorSummarySchema = z.object({
   quant_view_added: z.string().min(1),
   macro_view_changed: z.string().min(1),
   unresolved_assumptions: z.array(z.string()).default([]),
-  final_conviction_snapshot: ConvictionScoresSchema,
-  not_financial_advice: z.string().min(1)
+  final_conviction_snapshot: ConvictionScoresSchema
 });
 
 export const FinalReviewSchema = z.object({
-  decision_direction: z.enum([
-    "constructive_but_conditional",
-    "balanced_watchlist",
-    "cautious_risk_first",
-    "insufficient_evidence"
-  ]),
+  action_signal: z.enum(["buy", "wait", "avoid", "reduce"]),
+  action_score: z.number().min(0).max(100),
+  evidence_score: z.number().min(0).max(100),
+  risk_score: z.number().min(0).max(100),
+  time_horizon: z.string().min(1),
   evidence_grade: z.enum(["strong", "mixed", "weak", "insufficient"]),
+  action_rationale: z.string().min(1),
   committee_verdict: z.string().min(1),
   primary_risk_gate: z.string().min(1),
   what_would_change_direction: z.array(z.string().min(1)).min(1).max(5),
   next_diligence_steps: z.array(z.string().min(1)).min(1).max(5),
-  final_conviction_snapshot: ConvictionScoresSchema,
-  not_financial_advice: z.string().min(1)
+  final_conviction_snapshot: ConvictionScoresSchema
 });
 
 export const FollowUpPlanSchema = z.object({

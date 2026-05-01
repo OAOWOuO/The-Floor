@@ -59,8 +59,8 @@
   <rect x="380" y="558" width="650" height="112" rx="8" fill="#D9E1EA" fill-opacity="0.08" stroke="#D9E1EA" stroke-opacity="0.22"/>
   <text x="402" y="586" fill="#D9E1EA" font-family="SFMono-Regular, Menlo, monospace" font-size="13" font-weight="800">MOD</text>
   <text x="456" y="586" fill="#EDF2F7" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">Moderator</text>
-  <text x="402" y="620" fill="#E4EBF3" font-family="Inter, Arial, sans-serif" font-size="18">Live disagreement: evidence quality, not a buy/sell call.</text>
-  <text x="402" y="650" fill="#93A3B5" font-family="Inter, Arial, sans-serif" font-size="16">No recommendation. Captured snapshot, not financial advice.</text>
+  <text x="402" y="620" fill="#E4EBF3" font-family="Inter, Arial, sans-serif" font-size="18">Final Review: BUY / WAIT / AVOID / REDUCE action signal.</text>
+  <text x="402" y="650" fill="#93A3B5" font-family="Inter, Arial, sans-serif" font-size="16">Action score · evidence score · risk score · diligence gates.</text>
 
   <text x="1136" y="90" fill="#56CCF2" font-family="SFMono-Regular, Menlo, monospace" font-size="16" font-weight="700">CONVICTION</text>
   <text x="1136" y="124" fill="#EDF2F7" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">Tracker</text>

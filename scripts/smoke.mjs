@@ -133,7 +133,7 @@ async function runResearchFlow(baseUrl) {
   if (!complete?.convictionHistory?.marcus || complete.convictionHistory.marcus.length < 2) {
     throw new Error("Conviction did not move during debate.");
   }
-  if (reviewIndex === -1 || reviewIndex > completeIndex || !complete?.finalReview?.decision_direction) {
+  if (reviewIndex === -1 || reviewIndex > completeIndex || !complete?.finalReview?.action_signal) {
     throw new Error("Final Review Officer did not complete before follow-up opened.");
   }
 

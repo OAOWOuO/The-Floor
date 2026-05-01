@@ -57,8 +57,8 @@ export async function generateModeratorSummary({ researchPacket, synthesis, tran
     schemaName: "moderator_summary",
     instructions: [
       "You are the Moderator for The Floor.",
-      "Summarize genuine disagreement from the live debate. You synthesize; you do not recommend.",
-      "No buy/sell/hold advice, target prices, or personalized financial advice.",
+      "Summarize genuine disagreement from the live debate. You synthesize and hand the room to the Final Review Officer.",
+      "No target prices, order placement language, or personal portfolio sizing.",
       "Return strict JSON only."
     ].join("\n"),
     input: [
@@ -66,7 +66,7 @@ export async function generateModeratorSummary({ researchPacket, synthesis, tran
       `Research synthesis: ${JSON.stringify(synthesis)}`,
       `Transcript: ${JSON.stringify(transcript.map((message) => ({ speaker: message.name, body: message.body, citedEvidenceIds: message.citedEvidenceIds })))}`,
       `Final conviction: ${JSON.stringify(conviction)}`,
-      "Return JSON with keys: top_live_disagreement, strongest_bull_point, strongest_bear_point, quant_view_added, macro_view_changed, unresolved_assumptions, final_conviction_snapshot, not_financial_advice."
+      "Return JSON with keys: top_live_disagreement, strongest_bull_point, strongest_bear_point, quant_view_added, macro_view_changed, unresolved_assumptions, final_conviction_snapshot."
     ].join("\n\n")
   });
 
@@ -88,11 +88,13 @@ export async function generateFinalReview({ researchPacket, synthesis, transcrip
     schemaName: "final_review",
     instructions: [
       "You are the Final Review Officer for The Floor, like an investment committee chair.",
-      "Your job is to turn the debate into a non-advisory research direction and diligence gate.",
-      "You must not tell the user to buy, sell, hold, invest, avoid investing, or make a portfolio decision.",
-      "Use exactly one decision_direction enum value: constructive_but_conditional, balanced_watchlist, cautious_risk_first, insufficient_evidence.",
-      "The output should feel decisive about evidence quality, not personalized investment advice.",
-      "No target prices, no buy/sell/hold language, no personalized financial advice.",
+      "Your job is to turn the debate into an explicit action signal with scoring and risk gates.",
+      "Use exactly one action_signal enum value: buy, wait, avoid, reduce.",
+      "action_score means how strongly the room supports the selected action from 0 to 100.",
+      "risk_score means downside or uncertainty pressure from 0 to 100.",
+      "evidence_score means how strong and complete the evidence packet is from 0 to 100.",
+      "Be decisive, but tie every action to sourced evidence, debate disagreements, and falsifiable gates.",
+      "No target prices, no order placement language, no personal portfolio sizing, and no fabricated evidence.",
       "Return strict JSON only."
     ].join("\n"),
     input: [
@@ -102,7 +104,7 @@ export async function generateFinalReview({ researchPacket, synthesis, transcrip
       `Moderator summary: ${JSON.stringify(moderatorSummary)}`,
       `Transcript: ${JSON.stringify(transcript.map((message) => ({ speaker: message.name, body: message.body, citedEvidenceIds: message.citedEvidenceIds })))}`,
       `Final conviction: ${JSON.stringify(conviction)}`,
-      "Return JSON with keys: decision_direction, evidence_grade, committee_verdict, primary_risk_gate, what_would_change_direction, next_diligence_steps, final_conviction_snapshot, not_financial_advice."
+      "Return JSON with keys: action_signal, action_score, evidence_score, risk_score, time_horizon, evidence_grade, action_rationale, committee_verdict, primary_risk_gate, what_would_change_direction, next_diligence_steps, final_conviction_snapshot."
     ].join("\n\n")
   });
 
@@ -139,18 +141,21 @@ export function finalReviewToMessage(review, researchPacket) {
   const body = [
     `Final Review Officer on ${researchPacket.resolvedTicker}:`,
     "",
-    `Decision direction (non-advisory): ${directionLabel(review.decision_direction)}`,
+    `Action signal: ${actionLabel(review.action_signal)}`,
+    `Action score: ${Math.round(review.action_score)}/100`,
+    `Evidence score: ${Math.round(review.evidence_score)}/100`,
+    `Risk score: ${Math.round(review.risk_score)}/100`,
+    `Time horizon: ${review.time_horizon}`,
     `Evidence grade: ${review.evidence_grade}`,
-    `Committee verdict: ${guardRecommendationLanguage(review.committee_verdict)}`,
-    `Primary risk gate: ${guardRecommendationLanguage(review.primary_risk_gate)}`,
+    `Action rationale: ${review.action_rationale}`,
+    `Committee verdict: ${review.committee_verdict}`,
+    `Primary risk gate: ${review.primary_risk_gate}`,
     "",
     "What would change the direction:",
-    ...(review.what_would_change_direction || []).map((item, index) => `${index + 1}. ${guardRecommendationLanguage(item)}`),
+    ...(review.what_would_change_direction || []).map((item, index) => `${index + 1}. ${item}`),
     "",
     "Next diligence steps:",
-    ...(review.next_diligence_steps || []).map((item, index) => `${index + 1}. ${guardRecommendationLanguage(item)}`),
-    "",
-    review.not_financial_advice || "This is a research direction, not financial advice or a buy/sell/hold call."
+    ...(review.next_diligence_steps || []).map((item, index) => `${index + 1}. ${item}`)
   ].join("\n");
 
   return {
@@ -188,7 +193,7 @@ export function moderatorToMessage(summary, researchPacket) {
       .map(([agentId, value]) => `${getAgent(agentId)?.name || agentId} ${value >= 0 ? "+" : ""}${value}`)
       .join(" | ")}`,
     "",
-    summary.not_financial_advice || "This is educational analysis, not financial advice."
+    "Handing the room to the Final Review Officer for action scoring."
   ].join("\n");
 
   return {
@@ -209,22 +214,13 @@ export function moderatorToMessage(summary, researchPacket) {
   };
 }
 
-function directionLabel(direction) {
+function actionLabel(action) {
   return {
-    constructive_but_conditional: "Constructive, but conditional on evidence improving",
-    balanced_watchlist: "Balanced watchlist: evidence mixed, monitor the gates",
-    cautious_risk_first: "Cautious, risk-first: unresolved issues dominate",
-    insufficient_evidence: "Insufficient evidence: do more diligence before forming a view"
-  }[direction] || "Balanced watchlist: evidence mixed, monitor the gates";
-}
-
-function guardRecommendationLanguage(text) {
-  return String(text || "")
-    .replace(/\b(buy|sell|hold)\b/gi, "make a portfolio call")
-    .replace(/\bshould\s+invest\b/gi, "has enough evidence for a constructive research stance")
-    .replace(/\bshould\s+not\s+invest\b/gi, "does not yet clear the evidence bar")
-    .replace(/\binvest\b/gi, "evaluate")
-    .replace(/\binvesting\b/gi, "evaluating");
+    buy: "BUY",
+    wait: "WAIT",
+    avoid: "AVOID",
+    reduce: "REDUCE"
+  }[action] || "WAIT";
 }
 
 function repairDebatePlan(json, packet) {
@@ -422,33 +418,54 @@ function mockModeratorSummary(packet, synthesis, conviction) {
     quant_view_added: synthesis.quant_flags[0]?.flag || "The room needs base rates and error bars.",
     macro_view_changed: synthesis.macro_flags[0]?.flag || "Macro risk changes valuation patience even when company execution is sound.",
     unresolved_assumptions: synthesis.skeptic_questions.slice(0, 3),
-    final_conviction_snapshot: conviction,
-    not_financial_advice: "This is educational analysis and a debate map, not financial advice or a recommendation."
+    final_conviction_snapshot: conviction
   };
 }
 
 function mockFinalReview(packet, synthesis, conviction) {
   const averageConviction =
     Object.values(conviction).reduce((sum, value) => sum + Number(value || 0), 0) / Math.max(1, Object.values(conviction).length);
-  const direction =
+  const stats = packet.keyStats || {};
+  const beta = Number(stats.beta);
+  const trailingPe = Number(stats.trailingPE);
+  const valuationPressure = Number.isFinite(trailingPe) && trailingPe > 45 ? 12 : 0;
+  const betaPressure = Number.isFinite(beta) && beta > 1.6 ? 10 : 0;
+  const riskScore = Math.max(0, Math.min(100, 42 - averageConviction * 0.7 + valuationPressure + betaPressure));
+  const actionScore = Math.max(
+    0,
+    Math.min(100, 50 + averageConviction * 1.8 + (packet.dataCoverageScore - 70) * 0.35 - riskScore * 0.25)
+  );
+  const actionSignal =
     packet.dataCoverageScore < 55
-      ? "insufficient_evidence"
-      : averageConviction > 12
-        ? "constructive_but_conditional"
-        : averageConviction < -12
-          ? "cautious_risk_first"
-          : "balanced_watchlist";
+      ? "avoid"
+      : actionScore >= 68 && riskScore < 58
+        ? "buy"
+        : actionScore <= 38 || riskScore >= 72
+          ? "reduce"
+          : "wait";
 
   return {
-    decision_direction: direction,
+    action_signal: actionSignal,
+    action_score: Math.round(actionScore),
+    evidence_score: packet.dataCoverageScore,
+    risk_score: Math.round(riskScore),
+    time_horizon: "Next 1-2 quarters; update after the next filing or material disclosure.",
     evidence_grade: packet.dataCoverageScore >= 80 ? "strong" : packet.dataCoverageScore >= 60 ? "mixed" : "weak",
+    action_rationale:
+      actionSignal === "buy"
+        ? `BUY clears because the evidence packet is strong and the debate still leaves positive conviction after cash-flow, valuation, and risk challenges.`
+        : actionSignal === "reduce"
+          ? `REDUCE triggers because risk pressure or weak conviction outweighs the current upside case.`
+          : actionSignal === "avoid"
+            ? `AVOID triggers because the evidence packet is too thin to support an actionable long thesis.`
+            : `WAIT is the right action because the bull case is live, but risk gates and missing direct evidence keep the score below a buy threshold.`,
     committee_verdict:
-      direction === "constructive_but_conditional"
-        ? `The committee view is constructive only if the sourced growth, cash-flow, and disclosure evidence keep confirming ${packet.resolvedTicker}'s thesis.`
-        : direction === "cautious_risk_first"
-          ? `The committee view is risk-first because unresolved cash quality, valuation, or macro gates carry more weight than the upside narrative.`
-          : direction === "insufficient_evidence"
-            ? `The committee cannot form a durable research view because the evidence packet is not strong enough.`
+      actionSignal === "buy"
+        ? `The committee would mark ${packet.resolvedTicker} as a buy-candidate on this packet, with the condition that cash flow and disclosure evidence keep backing the thesis.`
+        : actionSignal === "reduce"
+          ? `The committee would reduce exposure until valuation, cash quality, or macro risk stops dominating the upside case.`
+          : actionSignal === "avoid"
+            ? `The committee would avoid acting on the long case because the evidence bar is not met.`
             : `The committee view is balanced: ${synthesis.bull_thesis.summary} is live, but ${synthesis.bear_thesis.summary} keeps the evidence bar high.`,
     primary_risk_gate: synthesis.key_uncertainties?.[0] || "Whether future evidence directly confirms demand, cash conversion, and disclosure quality.",
     what_would_change_direction: [
@@ -461,8 +478,7 @@ function mockFinalReview(packet, synthesis, conviction) {
       "Read the most recent 10-K or 10-Q risk factors and MD&A sections.",
       "Ask each analyst which specific metric would force a conviction update."
     ],
-    final_conviction_snapshot: conviction,
-    not_financial_advice: "This is a research direction for educational analysis, not financial advice or a buy/sell/hold recommendation."
+    final_conviction_snapshot: conviction
   };
 }
 

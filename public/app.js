@@ -772,7 +772,7 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
     ),
     auditedMessage(
       "kenji",
-      `I would mark this as an audited showcase run, not a recommendation. The scorecard is now wider: market, fundamentals, accounting quality, macro, regulatory scope, supply chain, and credit. Every displayed number ties back to a snapshot timestamp and source.`,
+      `I would mark this as an audited showcase run with a scorecard wide enough to support an action signal: market, fundamentals, accounting quality, macro, regulatory scope, supply chain, and credit. Every displayed number ties back to a snapshot timestamp and source.`,
       [ids.market, ids.priceHistory],
       { kenji: 2, priya: 1, lucas: 1, mei: 1, omar: 1, skeptic: 1 },
       "source discipline improved"
@@ -789,9 +789,7 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
       body: [
         `Moderator wrap on ${ticker}:`,
         "",
-        `This showcase used a market data snapshot captured at ${captured}. The strongest bull point was evidence-based operating upside where fundamentals support it. The strongest bear point was cash-flow and direct-demand proof. Kenji kept the distribution wide. Priya added accounting-quality discipline, Mei named missing operations evidence, Lucas constrained regulatory claims to disclosures, Omar added funding risk, and Sofia put the company back into sector, currency, and market-state context. The Skeptic forced the room to separate sourced metrics from assumptions.`,
-        "",
-        "No recommendation. This is an educational showcase with a captured data snapshot, not financial advice."
+        `This showcase used a market data snapshot captured at ${captured}. The strongest bull point was evidence-based operating upside where fundamentals support it. The strongest bear point was cash-flow and direct-demand proof. Kenji kept the distribution wide. Priya added accounting-quality discipline, Mei named missing operations evidence, Lucas constrained regulatory claims to disclosures, Omar added funding risk, and Sofia put the company back into sector, currency, and market-state context. The Skeptic forced the room to separate sourced metrics from assumptions. Handing this to the IC Chair for an action signal.`
       ].join("\n"),
       citedEvidenceIds: [ids.market, ids.fundamentals, ids.disclosure].filter(Boolean),
       citations: [],
@@ -801,6 +799,7 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
   const averageConviction =
     Object.values(projectedConviction).reduce((sum, value) => sum + Number(value || 0), 0) /
     Math.max(1, Object.values(projectedConviction).length);
+  const action = showcaseActionSignal(averageConviction, packet.dataCoverageScore, stats);
   const finalReview = {
     id: crypto.randomUUID(),
     agentId: "reviewer",
@@ -812,9 +811,14 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
     body: [
       `Final Review Officer on ${ticker}:`,
       "",
-      `Decision direction (non-advisory): ${showcaseDirectionLabel(averageConviction, packet.dataCoverageScore)}`,
+      `Action signal: ${action.signal}`,
+      `Action score: ${action.actionScore}/100`,
+      `Evidence score: ${action.evidenceScore}/100`,
+      `Risk score: ${action.riskScore}/100`,
+      "Time horizon: Next 1-2 quarters; update after the next filing or material disclosure.",
       `Evidence grade: ${packet.dataCoverageScore >= 80 ? "strong" : packet.dataCoverageScore >= 60 ? "mixed" : "weak"}`,
-      `Committee verdict: The room has a research direction, not a portfolio instruction. The constructive case needs the displayed fundamentals and cash economics to keep confirming the thesis; the risk case keeps priority if direct demand, disclosure, liquidity, or valuation evidence weakens.`,
+      `Action rationale: ${action.rationale}`,
+      `Committee verdict: ${action.verdict}`,
       `Primary risk gate: ${packet.evidenceItems?.length ? "whether the next evidence packet confirms the current source-labeled snapshot." : "insufficient source evidence."}`,
       "",
       "What would change the direction:",
@@ -825,9 +829,7 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
       "Next diligence steps:",
       "1. Open the Data tab and check every provider-labeled metric before trusting the debate.",
       "2. Compare this snapshot with the next filing or quarterly update.",
-      "3. Ask the room which specific evidence item would force each desk to lower or raise conviction.",
-      "",
-      "This is a research direction for educational analysis, not financial advice or a buy/sell/hold recommendation."
+      "3. Ask the room which specific evidence item would force each desk to lower or raise conviction."
     ].join("\n"),
     citedEvidenceIds: [ids.market, ids.fundamentals, ids.stats, ids.disclosure].filter(Boolean),
     citations: [],
@@ -837,11 +839,47 @@ function buildAuditedShowcasePlan(ticker, question, packet) {
   return { turns, moderator, finalReview };
 }
 
-function showcaseDirectionLabel(averageConviction, coverageScore) {
-  if (coverageScore < 55) return "Insufficient evidence: do more diligence before forming a view";
-  if (averageConviction > 12) return "Constructive, but conditional on evidence improving";
-  if (averageConviction < -12) return "Cautious, risk-first: unresolved issues dominate";
-  return "Balanced watchlist: evidence mixed, monitor the gates";
+function showcaseActionSignal(averageConviction, coverageScore, stats = {}) {
+  const beta = finiteNumber(stats.beta);
+  const trailingPe = finiteNumber(stats.trailingPE);
+  const valuationPressure = Number.isFinite(trailingPe) && trailingPe > 45 ? 12 : 0;
+  const betaPressure = Number.isFinite(beta) && beta > 1.6 ? 10 : 0;
+  const riskScore = clampScore(42 - averageConviction * 0.7 + valuationPressure + betaPressure);
+  const actionScore = clampScore(50 + averageConviction * 1.8 + (coverageScore - 70) * 0.35 - riskScore * 0.25);
+  const signal =
+    coverageScore < 55
+      ? "AVOID"
+      : actionScore >= 68 && riskScore < 58
+        ? "BUY"
+        : actionScore <= 38 || riskScore >= 72
+          ? "REDUCE"
+          : "WAIT";
+  const rationale = {
+    BUY: "BUY clears because the evidence packet is strong and conviction remains positive after cash-flow, valuation, and risk challenges.",
+    WAIT: "WAIT wins because the bull case is alive, but missing direct demand evidence and risk gates keep the score below a buy threshold.",
+    AVOID: "AVOID triggers because the evidence packet is too thin to support action.",
+    REDUCE: "REDUCE triggers because risk pressure or weak conviction outweighs the current upside case."
+  }[signal];
+  const verdict = {
+    BUY: "The IC would mark this as a buy-candidate on the current packet, with cash conversion and disclosure support as the key validation gates.",
+    WAIT: "The IC would wait for the next evidence update before upgrading the action; the setup is interesting but not decisive.",
+    AVOID: "The IC would avoid acting until the evidence packet improves.",
+    REDUCE: "The IC would reduce exposure until valuation, cash quality, or macro risk stops dominating the upside case."
+  }[signal];
+  return {
+    signal,
+    actionScore: Math.round(actionScore),
+    evidenceScore: Math.round(coverageScore || 0),
+    riskScore: Math.round(riskScore),
+    rationale,
+    verdict
+  };
+}
+
+function clampScore(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 50;
+  return Math.max(0, Math.min(100, number));
 }
 
 function projectedShowcaseConviction(turns) {

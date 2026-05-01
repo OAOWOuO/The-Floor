@@ -8,9 +8,7 @@ Nine analysts. One stock. No mercy.
 
 ![The Floor showcase preview](public/assets/showcase-preview.svg)
 
-The Floor is a research-first live AI trading-room debate app. A user enters a listed ticker, the server resolves it, fetches market/profile/stat/disclosure evidence, builds a normalized research packet, asks OpenAI to synthesize analyst priors, then streams a shared multi-agent debate over SSE. The expanded room has thesis, evidence, risk, and epistemic desks: bull, bear, quant, forensic accounting, supply chain, macro, regulatory, credit, and skeptic voices. The analysts debate from the same evidence packet, cite source chips, and update conviction after every turn.
-
-This is educational analysis only. It is not financial advice, not a stock recommendation system, and not a price prediction tool.
+The Floor is a research-first live AI trading-room debate app. A user enters a listed ticker, the server resolves it, fetches market/profile/stat/disclosure evidence, builds a normalized research packet, asks OpenAI to synthesize analyst priors, then streams a shared multi-agent debate over SSE. The expanded room has thesis, evidence, risk, and epistemic desks: bull, bear, quant, forensic accounting, supply chain, macro, regulatory, credit, skeptic, and final-review voices. Analysts debate from the same evidence packet, cite source chips, update conviction after every turn, and close with an IC-style action signal.
 
 ## What changed
 
@@ -24,7 +22,7 @@ This is educational analysis only. It is not financial advice, not a stock recom
 - The debate is blocked until the research packet passes the minimum evidence threshold.
 - Follow-up chat reuses the same research packet, analyst priors, and transcript.
 - Conviction scores initialize from synthesis and move after every analyst turn.
-- A Final Review Officer closes the room after the Moderator with a non-advisory research direction, evidence grade, risk gate, and next diligence steps.
+- A Final Review Officer closes the room after the Moderator with an action signal, action score, evidence score, risk score, risk gate, and next diligence steps.
 
 ## Data sources
 
@@ -131,5 +129,5 @@ GitHub Actions runs these checks on pushes and pull requests.
 - SEC enrichment is best effort and not required for non-US tickers.
 - Debate quality depends on `OPENAI_API_KEY` and model availability.
 - No database or authentication yet; sessions are in-memory.
-- The app avoids price targets, buy/sell/hold calls, and personalized advice by design.
-- The Final Review Officer is deliberately framed as research direction, not a portfolio recommendation.
+- The app avoids target prices, order placement language, and personal portfolio sizing.
+- The Final Review Officer produces an explicit action signal from the current evidence packet.

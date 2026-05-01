@@ -81,7 +81,7 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
     short: "MOD",
     color: "#d9e1ea",
     timestamp: timestamp(),
-    body: `Moderator wrap on ${session.ticker}: this was explicit static mode. Use normal mode with OPENAI_API_KEY for real research-backed debate.\n\nNo recommendation. Educational demo only.`,
+    body: `Moderator wrap on ${session.ticker}: this was explicit static mode. Use Showcase for a fresh source-labeled snapshot or Live mode with OPENAI_API_KEY for real research-backed debate.`,
     citations: ["static demo"],
     citedEvidenceIds: []
   };
@@ -96,7 +96,19 @@ export async function streamStaticDemo({ response, session, writeEvent, sleep, d
     short: "IC",
     color: "#f2c94c",
     timestamp: timestamp(),
-    body: `Final Review Officer on ${session.ticker}: explicit static mode is only a product tour. Decision direction: insufficient evidence. Use Showcase for a fresh source-labeled snapshot or Live mode with a server-side OPENAI_API_KEY for real research-backed debate.\n\nThis is educational analysis, not financial advice or a buy/sell/hold recommendation.`,
+    body: [
+      `Final Review Officer on ${session.ticker}:`,
+      "",
+      "Action signal: WAIT",
+      "Action score: 20/100",
+      "Evidence score: 10/100",
+      "Risk score: 80/100",
+      "Time horizon: switch to Showcase or Live before acting on the room.",
+      "Evidence grade: insufficient",
+      "Action rationale: WAIT is mandatory because explicit static mode has no fresh research packet.",
+      "Committee verdict: do not use static mode for an investment action; run a sourced snapshot first.",
+      "Primary risk gate: missing real ticker evidence."
+    ].join("\n"),
     citations: ["static demo"],
     citedEvidenceIds: []
   };
